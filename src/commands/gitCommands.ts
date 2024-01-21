@@ -2,6 +2,7 @@ import type { Disposable, InputBox, QuickInputButton, QuickPick, QuickPickItem }
 import { InputBoxValidationSeverity, QuickInputButtons, window } from 'vscode';
 import { Commands } from '../constants';
 import { Container } from '../container';
+import type { FocusCommandArgs } from '../plus/focus/focus';
 import { Directive, isDirective, isDirectiveQuickPickItem } from '../quickpicks/items/directive';
 import { command } from '../system/command';
 import { configuration } from '../system/configuration';
@@ -62,7 +63,8 @@ export type GitCommandsCommandArgs =
 	| StatusGitCommandArgs
 	| SwitchGitCommandArgs
 	| TagGitCommandArgs
-	| WorktreeGitCommandArgs;
+	| WorktreeGitCommandArgs
+	| FocusCommandArgs;
 
 export type GitCommandsCommandArgsWithCompletion = GitCommandsCommandArgs & { completion?: Deferred<void> };
 
@@ -107,6 +109,7 @@ export class GitCommandsCommand extends Command {
 			Commands.GitCommandsWorktreeOpen,
 
 			Commands.CopyWorkingChangesToWorktree,
+			Commands.QuickFocus,
 		]);
 	}
 
@@ -206,11 +209,15 @@ export class GitCommandsCommand extends Command {
 			case Commands.GitCommandsWorktreeOpen:
 				args = { command: 'worktree', state: { subcommand: 'open' } };
 				break;
+
 			case Commands.CopyWorkingChangesToWorktree:
 				args = {
 					command: 'worktree',
 					state: { subcommand: 'copy-changes', changes: { type: 'working-tree' } },
 				};
+				break;
+			case Commands.QuickFocus:
+				args = { command: 'focus' };
 				break;
 		}
 

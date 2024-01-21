@@ -2789,6 +2789,27 @@
 						"markdownDescription": "Specifies whether to allow opening multiple instances of the _Focus_",
 						"scope": "window",
 						"order": 10
+					},
+					"gitlens.focus.experimental.quickFocus.enabled": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "(Experimental) Specifies whether to enable the _Quick Focus_ features",
+						"scope": "window",
+						"order": 20
+					},
+					"gitlens.focus.experimental.indicators.enabled": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "(Experimental) Specifies whether to enable status bar indicators for _Focus_",
+						"scope": "window",
+						"order": 21
+					},
+					"gitlens.focus.experimental.indicators.openQuickFocus": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "(Experimental) Specifies whether to open _Focus_ or _Quick Focus_ when clicking on the indicators",
+						"scope": "window",
+						"order": 22
 					}
 				}
 			},
@@ -5258,10 +5279,16 @@
 				"category": "GitLens"
 			},
 			{
+				"command": "gitlens.quickFocus",
+				"title": "Quick Focus",
+				"category": "GitLens",
+				"icon": "$(target)"
+			},
+			{
 				"command": "gitlens.showFocusPage",
 				"title": "Show Focus",
 				"category": "GitLens",
-				"icon": "$(layers)"
+				"icon": "$(target)"
 			},
 			{
 				"command": "gitlens.focus.split",
@@ -9037,6 +9064,10 @@
 				{
 					"command": "gitlens.showFileHistoryView",
 					"when": "gitlens:enabled"
+				},
+				{
+					"command": "gitlens.quickFocus",
+					"when": "config.gitlens.focus.experimental.quickFocus.enabled"
 				},
 				{
 					"command": "gitlens.showFocusPage",

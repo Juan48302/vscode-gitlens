@@ -111,15 +111,18 @@ deletions
 updatedAt
 closedAt
 mergeable
+viewerCanUpdate
 mergedAt
 mergedBy {
 	login
 }
 repository {
 	isFork
+	name
 	owner {
 		login
 	}
+	viewerPermission
 }
 reviewDecision
 reviewRequests(first: 10) {
@@ -136,6 +139,16 @@ reviewRequests(first: 10) {
 	}
 }
 totalCommentsCount
+commits(last: 1) {
+	nodes {
+		commit {
+			oid
+			statusCheckRollup {
+				state
+			}
+		}
+	}
+}
 `;
 
 const issueNodeProperties = `
@@ -177,6 +190,7 @@ const issueNodeProperties = `
 		owner {
 			login
 		}
+		viewerPermission
 	}
 }
 `;
@@ -618,6 +632,7 @@ export class GitHubApi implements Disposable {
 					}
 					repository {
 						isFork
+						name
 						owner {
 							login
 						}
@@ -738,6 +753,7 @@ export class GitHubApi implements Disposable {
 							url
 						}
 						repository {
+							name
 							isFork
 							owner {
 								login

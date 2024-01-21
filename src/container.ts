@@ -20,6 +20,7 @@ import { LineHoverController } from './hovers/lineHoverController';
 import type { RepositoryPathMappingProvider } from './pathMapping/repositoryPathMappingProvider';
 import { DraftService } from './plus/drafts/draftsService';
 import { EnrichmentService } from './plus/focus/enrichmentService';
+import { FocusProvider } from './plus/focus/focusProvider';
 import { AccountAuthenticationProvider } from './plus/gk/account/authenticationProvider';
 import { OrganizationService } from './plus/gk/account/organizationService';
 import { SubscriptionService } from './plus/gk/account/subscriptionService';
@@ -283,17 +284,39 @@ export class Container {
 		this._disposables.push((this._homeView = registerHomeWebviewView(this._webviews)));
 		this._disposables.push((this._accountView = registerAccountWebviewView(this._webviews)));
 
+		if (
+			configuration.get('focus.experimental.quickFocus.enabled') ||
+			configuration.get('focus.experimental.indicators.enabled')
+		) {
+			this._disposables.push((this._focusProvider = new FocusProvider(this)));
+		}
+
 		if (configuration.get('terminalLinks.enabled')) {
 			this._disposables.push((this._terminalLinks = new GitTerminalLinkProvider(this)));
 		}
 
 		this._disposables.push(
 			configuration.onDidChange(e => {
-				if (!configuration.changed(e, 'terminalLinks.enabled')) return;
+				if (configuration.changed(e, 'terminalLinks.enabled')) {
+					this._terminalLinks?.dispose();
+					if (configuration.get('terminalLinks.enabled')) {
+						this._disposables.push((this._terminalLinks = new GitTerminalLinkProvider(this)));
+					}
+				}
 
-				this._terminalLinks?.dispose();
-				if (configuration.get('terminalLinks.enabled')) {
-					this._disposables.push((this._terminalLinks = new GitTerminalLinkProvider(this)));
+				if (
+					configuration.changed(e, [
+						'focus.experimental.quickFocus.enabled',
+						'focus.experimental.indicators.enabled',
+					])
+				) {
+					this._terminalLinks?.dispose();
+					if (
+						configuration.get('focus.experimental.quickFocus.enabled') ||
+						configuration.get('focus.experimental.indicators.enabled')
+					) {
+						this._disposables.push((this._focusProvider = new FocusProvider(this)));
+					}
 				}
 			}),
 		);
@@ -493,6 +516,15 @@ export class Container {
 	private readonly _fileHistoryView: FileHistoryView;
 	get fileHistoryView() {
 		return this._fileHistoryView;
+	}
+
+	private _focusProvider: FocusProvider | undefined;
+	get focus(): FocusProvider {
+		if (this._focusProvider == null) {
+			this._disposables.push((this._focusProvider = new FocusProvider(this)));
+		}
+
+		return this._focusProvider;
 	}
 
 	private readonly _git: GitProviderService;

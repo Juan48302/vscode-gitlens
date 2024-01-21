@@ -4,6 +4,14 @@ import type { RemoteProviderReference } from './remoteProvider';
 
 export type IssueOrPullRequestType = 'issue' | 'pullrequest';
 export type IssueOrPullRequestState = 'opened' | 'closed' | 'merged';
+export enum RepositoryAccessLevel {
+	Admin = 100,
+	Maintain = 40,
+	Write = 30,
+	Triage = 20,
+	Read = 10,
+	None = 0,
+}
 
 export interface IssueOrPullRequest {
 	readonly type: IssueOrPullRequestType;
@@ -32,6 +40,7 @@ export interface IssueMember {
 export interface IssueRepository {
 	owner: string;
 	repo: string;
+	accessLevel?: RepositoryAccessLevel;
 }
 
 export interface IssueShape extends IssueOrPullRequest {

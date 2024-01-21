@@ -1,9 +1,14 @@
 import type { Endpoints } from '@octokit/types';
 import { GitFileIndexStatus } from '../../../../git/models/file';
 import type { IssueLabel, IssueOrPullRequestType } from '../../../../git/models/issue';
-import { Issue } from '../../../../git/models/issue';
+import { Issue, RepositoryAccessLevel } from '../../../../git/models/issue';
 import type { PullRequestState } from '../../../../git/models/pullRequest';
-import { PullRequest, PullRequestMergeableState, PullRequestReviewDecision } from '../../../../git/models/pullRequest';
+import {
+	PullRequest,
+	PullRequestMergeableState,
+	PullRequestReviewDecision,
+	PullRequestStatusCheckRollupState,
+} from '../../../../git/models/pullRequest';
 import type { Provider } from '../../../../git/models/remoteProvider';
 
 export interface GitHubBlame {
@@ -113,9 +118,11 @@ export interface GitHubPullRequest {
 
 	repository: {
 		isFork: boolean;
+		name: string;
 		owner: {
 			login: string;
 		};
+		viewerPermission: GitHubViewerPermission;
 	};
 
 	isCrossRepository: boolean;
@@ -131,6 +138,7 @@ export interface GitHubIssueDetailed extends GitHubIssueOrPullRequest {
 		owner: {
 			login: string;
 		};
+		viewerPermission: GitHubViewerPermission;
 	};
 	labels?: { nodes: IssueLabel[] };
 	reactions?: {
@@ -143,6 +151,7 @@ export interface GitHubIssueDetailed extends GitHubIssueOrPullRequest {
 
 export type GitHubPullRequestReviewDecision = 'CHANGES_REQUESTED' | 'APPROVED' | 'REVIEW_REQUIRED';
 export type GitHubPullRequestMergeableState = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+export type GitHubPullRequestStatusCheckRollupState = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'EXPECTED' | 'ERROR';
 
 export interface GitHubDetailedPullRequest extends GitHubPullRequest {
 	reviewDecision: GitHubPullRequestReviewDecision;
@@ -151,6 +160,7 @@ export interface GitHubDetailedPullRequest extends GitHubPullRequest {
 	checksUrl: string;
 	totalCommentsCount: number;
 	mergeable: GitHubPullRequestMergeableState;
+	viewerCanUpdate: boolean;
 	additions: number;
 	deletions: number;
 	reviewRequests: {
@@ -161,6 +171,16 @@ export interface GitHubDetailedPullRequest extends GitHubPullRequest {
 	};
 	assignees: {
 		nodes: GitHubMember[];
+	};
+	commits: {
+		nodes: {
+			commit: {
+				oid: string;
+				statusCheckRollup: {
+					state: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'EXPECTED' | 'ERROR';
+				} | null;
+			};
+		}[];
 	};
 }
 
@@ -176,10 +196,16 @@ export function fromGitHubPullRequest(pr: GitHubPullRequest, provider: Provider)
 		pr.id,
 		pr.title,
 		pr.permalink,
+		{
+			owner: pr.repository.owner.login,
+			repo: pr.repository.name,
+			accessLevel: fromGitHubViewerPermissionToAccessLevel(pr.repository.viewerPermission),
+		},
 		fromGitHubPullRequestState(pr.state),
 		new Date(pr.updatedAt),
 		pr.closedAt == null ? undefined : new Date(pr.closedAt),
 		pr.mergedAt == null ? undefined : new Date(pr.mergedAt),
+		undefined,
 		undefined,
 		{
 			head: {
@@ -263,6 +289,23 @@ export function toGitHubPullRequestMergeableState(
 	}
 }
 
+export function fromGitHubPullRequestStatusCheckRollupState(
+	state: GitHubPullRequestStatusCheckRollupState | null | undefined,
+): PullRequestStatusCheckRollupState | undefined {
+	switch (state) {
+		case 'SUCCESS':
+		case 'EXPECTED':
+			return PullRequestStatusCheckRollupState.Success;
+		case 'FAILURE':
+		case 'ERROR':
+			return PullRequestStatusCheckRollupState.Failed;
+		case 'PENDING':
+			return PullRequestStatusCheckRollupState.Pending;
+		default:
+			return undefined;
+	}
+}
+
 export function fromGitHubPullRequestDetailed(pr: GitHubDetailedPullRequest, provider: Provider): PullRequest {
 	return new PullRequest(
 		provider,
@@ -275,11 +318,17 @@ export function fromGitHubPullRequestDetailed(pr: GitHubDetailedPullRequest, pro
 		pr.id,
 		pr.title,
 		pr.permalink,
+		{
+			owner: pr.repository.owner.login,
+			repo: pr.repository.name,
+			accessLevel: fromGitHubViewerPermissionToAccessLevel(pr.repository.viewerPermission),
+		},
 		fromGitHubPullRequestState(pr.state),
 		new Date(pr.updatedAt),
 		pr.closedAt == null ? undefined : new Date(pr.closedAt),
 		pr.mergedAt == null ? undefined : new Date(pr.mergedAt),
 		fromGitHubPullRequestMergeableState(pr.mergeable),
+		pr.viewerCanUpdate,
 		{
 			head: {
 				exists: pr.headRepository != null,
@@ -317,6 +366,7 @@ export function fromGitHubPullRequestDetailed(pr: GitHubDetailedPullRequest, pro
 			avatarUrl: r.avatarUrl,
 			url: r.url,
 		})),
+		fromGitHubPullRequestStatusCheckRollupState(pr.commits.nodes[0].commit.statusCheckRollup?.state),
 	);
 }
 
@@ -344,6 +394,7 @@ export function fromGitHubIssueDetailed(value: GitHubIssueDetailed, provider: Pr
 		{
 			owner: value.repository.owner.login,
 			repo: value.repository.name,
+			accessLevel: fromGitHubViewerPermissionToAccessLevel(value.repository.viewerPermission),
 		},
 		value.assignees.nodes.map(assignee => ({
 			name: assignee.login,
@@ -360,6 +411,33 @@ export function fromGitHubIssueDetailed(value: GitHubIssueDetailed, provider: Pr
 		value.comments?.totalCount,
 		value.reactions?.totalCount,
 	);
+}
+
+type GitHubViewerPermission =
+	| 'ADMIN' // Can read, clone, and push to this repository. Can also manage issues, pull requests, and repository settings, including adding collaborators
+	| 'MAINTAIN' // Can read, clone, and push to this repository. They can also manage issues, pull requests, and some repository settings
+	| 'WRITE' // Can read, clone, and push to this repository. Can also manage issues and pull requests
+	| 'TRIAGE' // Can read and clone this repository. Can also manage issues and pull requests
+	| 'READ' // Can read and clone this repository. Can also open and comment on issues and pull requests
+	| 'NONE';
+
+function fromGitHubViewerPermissionToAccessLevel(
+	permission: GitHubViewerPermission | null | undefined,
+): RepositoryAccessLevel {
+	switch (permission) {
+		case 'ADMIN':
+			return RepositoryAccessLevel.Admin;
+		case 'MAINTAIN':
+			return RepositoryAccessLevel.Maintain;
+		case 'WRITE':
+			return RepositoryAccessLevel.Write;
+		case 'TRIAGE':
+			return RepositoryAccessLevel.Triage;
+		case 'READ':
+			return RepositoryAccessLevel.Read;
+		default:
+			return RepositoryAccessLevel.None;
+	}
 }
 
 export interface GitHubTag {
