@@ -177,10 +177,10 @@ export class FocusProvider implements Disposable {
 
 		const [enrichedItemsResult, /*issuesResult,*/ prsResult] = await Promise.allSettled([
 			enrichedItemsPromise,
-			// options == null || options.issues
+			// options?.issues !== false
 			// 	? this.getIssues({ force: options?.force, cancellation: cancellation })
 			// 	: undefined,
-			options == null || options.issues
+			options?.prs !== false
 				? this.getPullRequests({ force: options?.force, cancellation: cancellation })
 				: undefined,
 		]);

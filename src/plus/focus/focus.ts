@@ -185,7 +185,8 @@ export class FocusCommand extends QuickCommand<State> {
 			const items: (FocusItemQuickPickItem | DirectiveQuickPickItem)[] = [];
 
 			if (groupedItems?.size) {
-				const uiGroups = groupByMap(groupedItems, ([group]) => actionGroupToGroupMap.get(group));
+				let uiGroups = groupByMap(groupedItems, ([group]) => actionGroupToGroupMap.get(group));
+				uiGroups = new Map([...uiGroups].sort((a, b) => groups.indexOf(a[0]!) - groups.indexOf(b[0]!)));
 
 				for (const [ui, groupArray] of uiGroups) {
 					for (const [group, groupItems] of groupArray) {
