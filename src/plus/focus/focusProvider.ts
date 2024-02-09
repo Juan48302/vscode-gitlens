@@ -228,7 +228,7 @@ export class FocusProvider implements Disposable {
 									break;
 								case PullRequestReviewDecision.ReviewRequired:
 									next = true;
-									addItemToGroup(grouped, 'needs-review', pr, enrichedItem);
+									addItemToGroup(grouped, 'waiting-for-review', pr, enrichedItem);
 									break;
 							}
 							break;
