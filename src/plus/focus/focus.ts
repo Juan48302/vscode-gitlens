@@ -34,22 +34,31 @@ import { interpolate } from '../../system/string';
 import { openUrl } from '../../system/utils';
 import type { FocusAction, FocusActionGroup, FocusItem } from './focusProvider';
 
-export const groups = ['mergeable', 'needs-attention', 'needs-review', 'waiting-for-review'] as const;
+export const groups = [
+	'mergeable',
+	'blocked',
+	'follow-up',
+	'needs-attention',
+	'needs-review',
+	'waiting-for-review',
+] as const;
 
 export type FocusGroup = (typeof groups)[number];
 
 const actionGroupToGroupMap = new Map<FocusActionGroup, FocusGroup>([
 	['mergeable', 'mergeable'],
-	['mergeable-conflicts', 'needs-attention'],
-	['failed-checks', 'needs-attention'],
-	['conflicts', 'needs-attention'],
+	['mergeable-conflicts', 'blocked'],
+	['failed-checks', 'blocked'],
+	['conflicts', 'blocked'],
 	['needs-review', 'needs-review'],
-	['changes-requested', 'needs-attention'],
+	['changes-requested', 'follow-up'],
 	['waiting-for-review', 'waiting-for-review'],
 ]);
 
 const groupMap = new Map<FocusGroup, string>([
 	['mergeable', 'Ready to Merge'],
+	['blocked', 'Blocking'],
+	['follow-up', 'Requires Follow-up'],
 	['needs-attention', 'Needs Your Attention'],
 	['needs-review', 'Needs Your Review'],
 	['waiting-for-review', 'Waiting for Review'],
@@ -57,8 +66,9 @@ const groupMap = new Map<FocusGroup, string>([
 
 const actionGroupMap = new Map<FocusActionGroup, string[]>([
 	['mergeable', ['Ready to Merge', 'Ready to merge']],
+	['mergeable-conflicts', ['Resolve Conflicts', 'You need to resolve merge conflicts, before this can be merged']],
 	['failed-checks', ['Failed Checks', 'You need to resolve the failing checks']],
-	['conflicts', ['Resolve Conflicts', 'You need to resolve merge conflicts, before this can be merged']],
+	['conflicts', ['Resolve Conflicts', 'You need to resolve merge conflicts']],
 	['needs-review', ['Needs Your Review', `\${author} requested your review`]],
 	['changes-requested', ['Changes Requested', 'Reviewers requested changes before this can be merged']],
 	['waiting-for-review', ['Waiting for Review', 'Waiting for reviewers to approve this pull request']],
