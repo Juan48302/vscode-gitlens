@@ -156,14 +156,27 @@ export class FocusCommand extends QuickCommand<State> {
 				case 'review':
 				case 'switch': {
 					// TODO
+					const repo = await this.container.focus.locateItemRepository(state.item, {
+						openIfNeeded: true,
+						prompt: true,
+						keepOpen: true,
+					});
+					if (repo == null) break;
+					state.item.repository = repo;
+					const ref = this.container.focus.getItemBranchRef(state.item);
+					// TODO: need to find matching local branches with the ref as their upstream, and:
+					// If none, pass in the remote ref to the switch,
+					// If one, pass in the local branch to the switch,
+					// If multiple, need to update the switch to filter down to just those branches as choices
+					// const localBranches = ref == null ? undefined : await repo.getBranches({ filter: b => b.upstream?.name === ref.ref && b.remote === false && b.name === state.item.ref?.branchName });
 					yield* getSteps(
 						this.container,
 						{
 							command: 'switch',
-							// state: {
-							// 	repos: [state.item.repoAndOwner],
-							// 	reference: state.item.ref,
-							// },
+							state: {
+								repos: [repo],
+								reference: ref,
+							},
 						},
 						this.pickedVia,
 					);

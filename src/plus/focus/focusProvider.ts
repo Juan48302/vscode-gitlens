@@ -2,6 +2,7 @@ import type { CancellationToken } from 'vscode';
 import { Disposable, EventEmitter } from 'vscode';
 import type { Container } from '../../container';
 import { CancellationError } from '../../errors';
+import { getBranchId } from '../../git/models/branch';
 import type { SearchedIssue } from '../../git/models/issue';
 import { RepositoryAccessLevel } from '../../git/models/issue';
 import type { SearchedPullRequest } from '../../git/models/pullRequest';
@@ -10,6 +11,10 @@ import {
 	PullRequestReviewDecision,
 	PullRequestStatusCheckRollupState,
 } from '../../git/models/pullRequest';
+import type { GitBranchReference } from '../../git/models/reference';
+import { createReference } from '../../git/models/reference';
+import type { Repository } from '../../git/models/repository';
+import type { GkProviderId, RepositoryIdentityDescriptor } from '../../gk/models/repositoryIdentities';
 import { getSettledValue } from '../../system/promise';
 import { HostedProviderId, SelfHostedProviderId } from '../integrations/providers/models';
 import type { EnrichableItem, EnrichedItem } from './enrichmentService';
@@ -58,6 +63,14 @@ export type FocusItem = {
 	pinned: boolean;
 	snoozed: boolean;
 	sortTime: number;
+
+	repository?: Repository;
+	repositoryIdentity?: RepositoryIdentityDescriptor;
+	ref?: {
+		branchName: string;
+		sha: string;
+		remoteName: string;
+	};
 };
 
 export interface FocusRefreshEvent {
@@ -161,6 +174,31 @@ export class FocusProvider implements Disposable {
 
 		await this.container.enrichments.snoozeItem(item.enrichable);
 		this._onDidChange.fire();
+	}
+
+	async locateItemRepository(
+		item: FocusItem,
+		options?: { force?: boolean; openIfNeeded?: boolean; keepOpen?: boolean; prompt?: boolean },
+	): Promise<Repository | undefined> {
+		if (item.repository != null && !options?.force) return item.repository;
+		if (item.repositoryIdentity == null) return undefined;
+
+		return this.container.repositoryIdentity.getRepository(item.repositoryIdentity, {
+			...options,
+			skipRefValidation: true,
+		});
+	}
+
+	getItemBranchRef(item: FocusItem): GitBranchReference | undefined {
+		if (item.ref == null || item.repository == null) return undefined;
+
+		const remoteBranchName = `${item.ref.remoteName}/${item.ref.branchName}`;
+		return createReference(remoteBranchName, item.repository.path, {
+			refType: 'branch',
+			id: getBranchId(item.repository.path, true, remoteBranchName),
+			name: remoteBranchName,
+			remote: true,
+		});
 	}
 
 	async getRankedAndGroupedItems(
@@ -337,6 +375,24 @@ function addItemToGroup(
 					pinned: enriched?.type === 'pin',
 					snoozed: enriched?.type === 'snooze',
 					sortTime: item.pullRequest.date.getTime(),
+					repositoryIdentity: {
+						remote: { url: item.pullRequest.refs?.head?.url },
+						name: item.pullRequest.repository.repo,
+						provider: {
+							// TODO: fix this typing, set according to item
+							id: 'github' as GkProviderId,
+							repoDomain: item.pullRequest.repository.owner,
+							repoName: item.pullRequest.repository.repo,
+						},
+					},
+					ref:
+						item.pullRequest.refs?.head != null
+							? {
+									branchName: item.pullRequest.refs.head.branch,
+									sha: item.pullRequest.refs.head.sha,
+									remoteName: item.pullRequest.refs.head.owner,
+							  }
+							: undefined,
 			  }
 			: {
 					type: 'issue',
@@ -362,6 +418,15 @@ function addItemToGroup(
 					pinned: enriched?.type === 'pin',
 					snoozed: enriched?.type === 'snooze',
 					sortTime: item.issue.updatedDate.getTime(),
+					repositoryIdentity: {
+						name: item.issue.repository.repo,
+						provider: {
+							// TODO: fix this typing, set according to item
+							id: 'github' as GkProviderId,
+							repoDomain: item.issue.repository.owner,
+							repoName: item.issue.repository.repo,
+						},
+					},
 			  },
 	);
 }
