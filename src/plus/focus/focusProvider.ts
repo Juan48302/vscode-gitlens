@@ -73,6 +73,13 @@ export type FocusItem = {
 	};
 };
 
+type CachedFocusPromise<T> = {
+	expiresAt: number;
+	promise: Promise<T | undefined>;
+};
+
+const cacheExpiration = 1000 * 60 * 30; // 30 minutes
+
 export interface FocusRefreshEvent {
 	groupedItems: Map<FocusActionGroup, FocusItem[]>;
 }
@@ -103,37 +110,46 @@ export class FocusProvider implements Disposable {
 		this._disposable.dispose();
 	}
 
-	private _issues: Promise<SearchedIssue[] | undefined> | undefined;
-	private getIssues(options?: { cancellation?: CancellationToken; force?: boolean }) {
-		if (options?.force || this._issues == null) {
-			this._issues = this.container.integrations.getMyIssues(
-				[HostedProviderId.GitHub, SelfHostedProviderId.GitHubEnterprise],
-				options?.cancellation,
-			);
+	private _issues: CachedFocusPromise<SearchedIssue[]> | undefined;
+	private async getIssues(options?: { cancellation?: CancellationToken; force?: boolean }) {
+		if (options?.force || this._issues == null || this._issues.expiresAt < Date.now()) {
+			this._issues = {
+				promise: this.container.integrations.getMyIssues(
+					[HostedProviderId.GitHub, SelfHostedProviderId.GitHubEnterprise],
+					options?.cancellation,
+				),
+				expiresAt: Date.now() + cacheExpiration,
+			};
 		}
 
-		return this._issues;
+		return this._issues?.promise;
 	}
 
-	private _prs: Promise<SearchedPullRequest[] | undefined> | undefined;
+	private _prs: CachedFocusPromise<SearchedPullRequest[]> | undefined;
 	private async getPullRequests(options?: { cancellation?: CancellationToken; force?: boolean }) {
-		if (options?.force || this._prs == null) {
-			this._prs = this.container.integrations.getMyPullRequests(
-				[HostedProviderId.GitHub, SelfHostedProviderId.GitHubEnterprise],
-				options?.cancellation,
-			);
+		if (options?.force || this._prs == null || this._prs.expiresAt < Date.now()) {
+			this._prs = {
+				promise: this.container.integrations.getMyPullRequests(
+					[HostedProviderId.GitHub, SelfHostedProviderId.GitHubEnterprise],
+					options?.cancellation,
+				),
+				expiresAt: Date.now() + cacheExpiration,
+			};
 		}
 
-		return this._prs;
+		return this._prs?.promise;
 	}
 
-	private _enrichedItems: Promise<EnrichedItem[] | undefined> | undefined;
+	private _enrichedItems: CachedFocusPromise<EnrichedItem[]> | undefined;
 	private async getEnrichedItems(options?: { cancellation?: CancellationToken; force?: boolean }) {
-		if (options?.force || this._enrichedItems == null) {
-			this._enrichedItems = this.container.enrichments.get(undefined, options?.cancellation);
+		if (options?.force || this._enrichedItems == null || this._enrichedItems.expiresAt < Date.now()) {
+			this._enrichedItems = {
+				promise: this.container.enrichments.get(undefined, options?.cancellation),
+				expiresAt: Date.now() + cacheExpiration,
+			};
 		}
 
-		return this._enrichedItems;
+		return this._enrichedItems?.promise;
 	}
 
 	refresh() {
