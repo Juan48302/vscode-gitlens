@@ -163,7 +163,7 @@ export class FocusCommand extends QuickCommand<State> {
 					});
 					if (repo == null) break;
 					state.item.repository = repo;
-					const ref = this.container.focus.getItemBranchRef(state.item);
+					const ref = await this.container.focus.getItemBranchRef(state.item);
 					// TODO: need to find matching local branches with the ref as their upstream, and:
 					// If none, pass in the remote ref to the switch,
 					// If one, pass in the local branch to the switch,

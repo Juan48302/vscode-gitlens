@@ -189,10 +189,21 @@ export class FocusProvider implements Disposable {
 		});
 	}
 
-	getItemBranchRef(item: FocusItem): GitBranchReference | undefined {
-		if (item.ref == null || item.repository == null) return undefined;
+	async getItemBranchRef(item: FocusItem): Promise<GitBranchReference | undefined> {
+		if (item.ref?.remoteName == null || item.repository == null) return undefined;
 
-		const remoteBranchName = `${item.ref.remoteName}/${item.ref.branchName}`;
+		const remoteName = item.ref.remoteName;
+		const remotes = await item.repository.getRemotes({ filter: r => r.provider?.owner === remoteName });
+		const matchingRemote = remotes.length > 0 ? remotes[0] : undefined;
+		let remoteBranchName = `${item.ref.remoteName}/${item.ref.branchName}`;
+		if (matchingRemote != null) {
+			remoteBranchName = `${matchingRemote.name}/${item.ref.branchName}`;
+			const matchingRemoteBranches = (
+				await item.repository.getBranches({ filter: b => b.remote && b.name === remoteBranchName })
+			)?.values;
+			if (matchingRemoteBranches?.length) return matchingRemoteBranches[0];
+		}
+
 		return createReference(remoteBranchName, item.repository.path, {
 			refType: 'branch',
 			id: getBranchId(item.repository.path, true, remoteBranchName),
@@ -247,16 +258,17 @@ export class FocusProvider implements Disposable {
 						continue;
 					}
 
+					const viewerHasMergeAccess =
+						pr.pullRequest.viewerCanUpdate &&
+						pr.pullRequest.repository.accessLevel != null &&
+						pr.pullRequest.repository.accessLevel >= RepositoryAccessLevel.Write;
+
 					switch (pr.pullRequest.mergeableState) {
 						case PullRequestMergeableState.Mergeable:
 							switch (pr.pullRequest.reviewDecision) {
 								case PullRequestReviewDecision.Approved:
 									next = true;
-									if (
-										pr.pullRequest.viewerCanUpdate &&
-										pr.pullRequest.repository.accessLevel != null &&
-										pr.pullRequest.repository.accessLevel >= RepositoryAccessLevel.Write
-									) {
+									if (viewerHasMergeAccess) {
 										addItemToGroup(grouped, 'mergeable', pr, enrichedItem);
 									} // TODO: should it be on in any group if you can't merge? maybe need to check if you are a contributor to the repo or something
 									break;
@@ -268,11 +280,20 @@ export class FocusProvider implements Disposable {
 									next = true;
 									addItemToGroup(grouped, 'waiting-for-review', pr, enrichedItem);
 									break;
+								case undefined:
+									if (pr.pullRequest.reviewRequests?.length) {
+										next = true;
+										addItemToGroup(grouped, 'waiting-for-review', pr, enrichedItem);
+									}
+									break;
 							}
 							break;
 						case PullRequestMergeableState.Conflicting:
 							next = true;
-							if (pr.pullRequest.reviewDecision === PullRequestReviewDecision.Approved) {
+							if (
+								pr.pullRequest.reviewDecision === PullRequestReviewDecision.Approved &&
+								viewerHasMergeAccess
+							) {
 								addItemToGroup(grouped, 'mergeable-conflicts', pr, enrichedItem);
 							} else {
 								addItemToGroup(grouped, 'conflicts', pr, enrichedItem);
