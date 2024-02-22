@@ -35,6 +35,7 @@ import { openUrl } from '../../system/utils';
 import type { FocusAction, FocusActionGroup, FocusItem } from './focusProvider';
 
 export const groups = [
+	'pinned',
 	'mergeable',
 	'blocked',
 	'follow-up',
@@ -56,6 +57,7 @@ const actionGroupToGroupMap = new Map<FocusActionGroup, FocusGroup>([
 ]);
 
 const groupMap = new Map<FocusGroup, string>([
+	['pinned', 'Pinned'],
 	['mergeable', 'Ready to Merge'],
 	['blocked', 'Blocking'],
 	['follow-up', 'Requires Follow-up'],
@@ -209,6 +211,20 @@ export class FocusCommand extends QuickCommand<State> {
 
 			if (groupedItems?.size) {
 				let uiGroups = groupByMap(groupedItems, ([group]) => actionGroupToGroupMap.get(group));
+				// Find and add pinned items to the pinned group.
+				// TODO: Improve this. We should not be looping through grouped items multiple times.
+				for (const [group, groupItems] of groupedItems) {
+					const pinned = groupItems.filter(i => i.pinned);
+					if (pinned.length) {
+						const pinnedGroup = uiGroups.get('pinned');
+						if (pinnedGroup === undefined) {
+							uiGroups.set('pinned', [[group, pinned]]);
+						} else {
+							pinnedGroup.push([group, pinned]);
+						}
+					}
+				}
+
 				uiGroups = new Map([...uiGroups].sort((a, b) => groups.indexOf(a[0]!) - groups.indexOf(b[0]!)));
 
 				for (const [ui, groupArray] of uiGroups) {
@@ -228,11 +244,11 @@ export class FocusCommand extends QuickCommand<State> {
 								if (group === 'mergeable') {
 									buttons.push(
 										MergeQuickInputButton,
-										i.enriched?.type === 'pin' ? UnpinQuickInputButton : PinQuickInputButton,
+										i.pinned ? UnpinQuickInputButton : PinQuickInputButton,
 									);
-								} else if (i.enriched?.type === 'pin') {
+								} else if (i.pinned) {
 									buttons.push(UnpinQuickInputButton);
-								} else if (i.enriched?.type === 'snooze') {
+								} else if (i.snoozed) {
 									buttons.push(UnsnoozeQuickInputButton);
 								} else {
 									buttons.push(PinQuickInputButton, SnoozeQuickInputButton);
@@ -303,6 +319,18 @@ export class FocusCommand extends QuickCommand<State> {
 					case UnpinQuickInputButton:
 						await this.container.focus.unpin(item);
 						break;
+				}
+
+				quickpick.busy = true;
+
+				try {
+					context.items = await this.container.focus.getRankedAndGroupedItems();
+					const items = getItems(context.items);
+
+					quickpick.placeholder = !items.length ? 'All done! Take a vacation' : 'Choose an item to focus on';
+					quickpick.items = items;
+				} finally {
+					quickpick.busy = false;
 				}
 			},
 		});

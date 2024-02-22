@@ -165,6 +165,7 @@ export class FocusProvider implements Disposable {
 		this._onDidChange.fire();
 
 		await this.container.enrichments.pinItem(item.enrichable);
+		this._enrichedItems = undefined;
 		this._onDidChange.fire();
 	}
 
@@ -172,7 +173,9 @@ export class FocusProvider implements Disposable {
 		item.pinned = false;
 		this._onDidChange.fire();
 
-		await this.container.enrichments.pinItem(item.enrichable);
+		if (item.enriched == null) return;
+		await this.container.enrichments.unpinItem(item.enriched.id);
+		this._enrichedItems = undefined;
 		this._onDidChange.fire();
 	}
 
@@ -181,6 +184,7 @@ export class FocusProvider implements Disposable {
 		this._onDidChange.fire();
 
 		await this.container.enrichments.snoozeItem(item.enrichable);
+		this._enrichedItems = undefined;
 		this._onDidChange.fire();
 	}
 
@@ -188,7 +192,9 @@ export class FocusProvider implements Disposable {
 		item.snoozed = false;
 		this._onDidChange.fire();
 
-		await this.container.enrichments.snoozeItem(item.enrichable);
+		if (item.enriched == null) return;
+		await this.container.enrichments.unsnoozeItem(item.enriched.id);
+		this._enrichedItems = undefined;
 		this._onDidChange.fire();
 	}
 
