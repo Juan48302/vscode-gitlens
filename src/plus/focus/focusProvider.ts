@@ -16,7 +16,7 @@ import { createReference } from '../../git/models/reference';
 import type { Repository } from '../../git/models/repository';
 import type { GkProviderId, RepositoryIdentityDescriptor } from '../../gk/models/repositoryIdentities';
 import { getSettledValue } from '../../system/promise';
-import { HostedProviderId, SelfHostedProviderId } from '../integrations/providers/models';
+import { HostedProviderId } from '../integrations/providers/models';
 import type { EnrichableItem, EnrichedItem } from './enrichmentService';
 import { FocusIndicator } from './focusIndicator';
 
@@ -114,10 +114,7 @@ export class FocusProvider implements Disposable {
 	private async getIssues(options?: { cancellation?: CancellationToken; force?: boolean }) {
 		if (options?.force || this._issues == null || this._issues.expiresAt < Date.now()) {
 			this._issues = {
-				promise: this.container.integrations.getMyIssues(
-					[HostedProviderId.GitHub, SelfHostedProviderId.GitHubEnterprise],
-					options?.cancellation,
-				),
+				promise: this.container.integrations.getMyIssues([HostedProviderId.GitHub], options?.cancellation),
 				expiresAt: Date.now() + cacheExpiration,
 			};
 		}
@@ -130,7 +127,7 @@ export class FocusProvider implements Disposable {
 		if (options?.force || this._prs == null || this._prs.expiresAt < Date.now()) {
 			this._prs = {
 				promise: this.container.integrations.getMyPullRequests(
-					[HostedProviderId.GitHub, SelfHostedProviderId.GitHubEnterprise],
+					[HostedProviderId.GitHub],
 					options?.cancellation,
 				),
 				expiresAt: Date.now() + cacheExpiration,
