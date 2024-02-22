@@ -88,6 +88,7 @@ export interface Config {
 			readonly indicators: {
 				readonly enabled: boolean;
 				readonly openQuickFocus: boolean;
+				readonly refreshRate: number;
 			};
 			readonly quickFocus: {
 				readonly enabled: boolean;

@@ -12,6 +12,8 @@ export class FocusIndicator implements Disposable {
 
 	private _statusBarFocus: StatusBarItem | undefined;
 
+	private _refreshTimer: ReturnType<typeof setInterval> | undefined;
+
 	constructor(
 		private readonly container: Container,
 		private readonly focus: FocusProvider,
@@ -24,17 +26,28 @@ export class FocusIndicator implements Disposable {
 	}
 
 	dispose() {
+		this.clearRefreshTimer();
 		this._statusBarFocus?.dispose();
 		this._disposable.dispose();
 	}
 
 	private onConfigurationChanged(e: ConfigurationChangeEvent) {
-		if (configuration.changed(e, 'focus.experimental.indicators')) {
+		if (!configuration.changed(e, 'focus.experimental.indicators')) return;
+
+		if (configuration.changed(e, 'focus.experimental.indicators.enabled')) {
 			this._statusBarFocus?.dispose();
 			this._statusBarFocus = undefined!;
 
 			if (configuration.get('focus.experimental.indicators.enabled')) {
 				this.onReady();
+			}
+		} else {
+			if (configuration.changed(e, 'focus.experimental.indicators.openQuickFocus')) {
+				this.updateStatusBarFocusCommand();
+			}
+
+			if (configuration.changed(e, 'focus.experimental.indicators.refreshRate')) {
+				this.startRefreshTimer();
 			}
 		}
 	}
@@ -46,16 +59,52 @@ export class FocusIndicator implements Disposable {
 	}
 
 	private onReady(): void {
+		if (!configuration.get('focus.experimental.indicators.enabled')) {
+			return;
+		}
+
 		this._statusBarFocus = window.createStatusBarItem('gitlens.focus', StatusBarAlignment.Left, 10000 - 2);
 		this._statusBarFocus.name = 'GitLens Focus';
+		this._statusBarFocus.text = '$(target)';
+		this._statusBarFocus.tooltip = 'Loading...';
+		this.updateStatusBarFocusCommand();
+		this._statusBarFocus.show();
+		this.clearRefreshTimer();
+		setTimeout(() => this.startRefreshTimer(), 5000);
+	}
+
+	private updateStatusBarFocusCommand() {
+		if (this._statusBarFocus == null) return;
+
 		this._statusBarFocus.command = configuration.get('focus.experimental.indicators.openQuickFocus')
 			? 'gitlens.quickFocus'
 			: 'gitlens.showFocusPage';
-		this._statusBarFocus.text = '$(target)';
-		this._statusBarFocus.tooltip = 'Loading...';
-		this._statusBarFocus.show();
+	}
 
-		setTimeout(() => void this.focus.getRankedAndGroupedItems(), 5000);
+	private startRefreshTimer() {
+		const refreshInterval = configuration.get('focus.experimental.indicators.refreshRate') * 1000 * 60;
+		let refreshNow = true;
+		if (this._refreshTimer != null) {
+			clearInterval(this._refreshTimer);
+			refreshNow = false;
+		}
+
+		if (refreshInterval <= 0) return;
+
+		if (refreshNow) {
+			void this.focus.getRankedAndGroupedItems({ force: true });
+		}
+
+		this._refreshTimer = setInterval(() => {
+			void this.focus.getRankedAndGroupedItems({ force: true });
+		}, refreshInterval);
+	}
+
+	private clearRefreshTimer() {
+		if (this._refreshTimer != null) {
+			clearInterval(this._refreshTimer);
+			this._refreshTimer = undefined;
+		}
 	}
 
 	private updateStatusBar(statusBarFocus: StatusBarItem, groupedItems: Map<FocusActionGroup, FocusItem[]>) {
