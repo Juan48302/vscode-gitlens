@@ -24,7 +24,13 @@ import { AzureDevOpsIntegration } from './providers/azureDevOps';
 import { BitbucketIntegration } from './providers/bitbucket';
 import { GitHubEnterpriseIntegration, GitHubIntegration } from './providers/github';
 import { GitLabIntegration, GitLabSelfHostedIntegration } from './providers/gitlab';
-import { HostingIntegrationId, isSelfHostedIntegrationId, SelfHostedIntegrationId } from './providers/models';
+import { JiraIntegration } from './providers/jira';
+import {
+	HostingIntegrationId,
+	isSelfHostedIntegrationId,
+	IssueIntegrationId,
+	SelfHostedIntegrationId,
+} from './providers/models';
 import { ProvidersApi } from './providers/providersApi';
 
 export interface ConnectionStateChangeEvent {
@@ -121,6 +127,9 @@ export class IntegrationService implements Disposable {
 					break;
 				case HostingIntegrationId.AzureDevOps:
 					provider = new AzureDevOpsIntegration(this.container, this._providersApi);
+					break;
+				case IssueIntegrationId.Jira:
+					provider = new JiraIntegration(this.container, this._providersApi);
 					break;
 				default:
 					throw new Error(`Provider '${id}' is not supported`);

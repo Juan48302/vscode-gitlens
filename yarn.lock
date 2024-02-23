@@ -372,12 +372,13 @@
     react-dragula "1.1.17"
     react-onclickoutside "^6.13.0"
 
-"@gitkraken/provider-apis@0.10.0":
-  version "0.10.0"
-  resolved "https://registry.yarnpkg.com/@gitkraken/provider-apis/-/provider-apis-0.10.0.tgz#75cc20d710f07f3eb28df89d83213833b6d40073"
-  integrity sha512-aXMNYROQ/7fCTk08/dsDVqdyvYkohgU39dIsbqdhdj5uRjTVmybqaS3F9mQXPSdnTqztAkz46w43t8JfIi+gTQ==
+"@gitkraken/provider-apis@0.15.2":
+  version "0.15.2"
+  resolved "https://registry.yarnpkg.com/@gitkraken/provider-apis/-/provider-apis-0.15.2.tgz#2779fd9f71a583089768c39f98d7e045b19ab0ef"
+  integrity sha512-OXBprVvtzdyuLr4G594xTbXDvjz9o8xw4fw4HP3/5j1RI4vxQKUgjJijWkaPX3iLpltYnB9bJ66jVIct7swNUQ==
   dependencies:
-    node-fetch "2.6.9"
+    js-base64 "3.7.5"
+    node-fetch "2.7.0"
 
 "@gitkraken/shared-web-components@0.1.1-rc.15":
   version "0.1.1-rc.15"
@@ -4498,6 +4499,11 @@ jest-worker@^29.7.0:
     merge-stream "^2.0.0"
     supports-color "^8.0.0"
 
+js-base64@3.7.5:
+  version "3.7.5"
+  resolved "https://registry.yarnpkg.com/js-base64/-/js-base64-3.7.5.tgz#21e24cf6b886f76d6f5f165bfcd69cc55b9e3fca"
+  integrity sha512-3MEt5DTINKqfScXKfJFrRbxkrnk2AxPWGBL/ycjz4dK8iqiSJ06UxD8jh8xuh6p10TX4t2+7FsBYVxxQbMg+qA==
+
 js-levenshtein-esm@^1.2.0:
   version "1.2.0"
   resolved "https://registry.yarnpkg.com/js-levenshtein-esm/-/js-levenshtein-esm-1.2.0.tgz#96532c34e0c90df198c9419963c64ca3cf43ae92"
@@ -5257,7 +5263,7 @@ node-addon-api@^6.1.0:
   resolved "https://registry.yarnpkg.com/node-addon-api/-/node-addon-api-6.1.0.tgz#ac8470034e58e67d0c6f1204a18ae6995d9c0d76"
   integrity sha512-+eawOlIgy680F0kBzPUNFhMZGtJ1YmqM6l4+Crf4IkImjYrO/mqPwRMh352g23uIaQKFItcQ64I7KMaJxHgAVA==
 
-node-fetch@2.6.9, node-fetch@2.7.0:
+node-fetch@2.7.0:
   version "2.7.0"
   resolved "https://registry.yarnpkg.com/node-fetch/-/node-fetch-2.7.0.tgz#d0f0fa6e3e2dc1d27efcd8ad99d550bda94d187d"
   integrity sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==
