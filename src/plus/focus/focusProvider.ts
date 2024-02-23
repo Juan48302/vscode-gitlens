@@ -18,7 +18,6 @@ import type { GkProviderId, RepositoryIdentityDescriptor } from '../../gk/models
 import { getSettledValue } from '../../system/promise';
 import { HostedProviderId } from '../integrations/providers/models';
 import type { EnrichableItem, EnrichedItem } from './enrichmentService';
-import { FocusIndicator } from './focusIndicator';
 
 export const actionGroups = [
 	'mergeable',
@@ -96,17 +95,15 @@ export class FocusProvider implements Disposable {
 	}
 
 	private readonly _disposable: Disposable;
-	private _focusIndicator: FocusIndicator;
 
 	constructor(private readonly container: Container) {
-		this._disposable = Disposable.from(
-			(this._focusIndicator = new FocusIndicator(container, this)),
+		this._disposable = Disposable
+			.from
 			// configuration.onDidChange(this.onConfigurationChanged, this),
-		);
+			();
 	}
 
 	dispose() {
-		this._focusIndicator?.dispose();
 		this._disposable.dispose();
 	}
 

@@ -2790,13 +2790,6 @@
 						"scope": "window",
 						"order": 10
 					},
-					"gitlens.focus.experimental.quickFocus.enabled": {
-						"type": "boolean",
-						"default": true,
-						"markdownDescription": "(Experimental) Specifies whether to enable the _Quick Focus_ features",
-						"scope": "window",
-						"order": 20
-					},
 					"gitlens.focus.experimental.indicators.enabled": {
 						"type": "boolean",
 						"default": true,
@@ -9074,7 +9067,7 @@
 				},
 				{
 					"command": "gitlens.quickFocus",
-					"when": "config.gitlens.focus.experimental.quickFocus.enabled"
+					"when": "gitlens:prerelease"
 				},
 				{
 					"command": "gitlens.showFocusPage",

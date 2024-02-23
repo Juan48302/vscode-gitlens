@@ -2,7 +2,6 @@ import type { ConfigurationChangeEvent, StatusBarItem, ThemeColor } from 'vscode
 import { Disposable, MarkdownString, StatusBarAlignment, window } from 'vscode';
 import type { Container } from '../../container';
 import { configuration } from '../../system/configuration';
-import { once } from '../../system/function';
 import { pluralize } from '../../system/string';
 import type { FocusActionGroup, FocusItem, FocusProvider, FocusRefreshEvent } from './focusProvider';
 import { actionGroups } from './focusProvider';
@@ -19,36 +18,28 @@ export class FocusIndicator implements Disposable {
 		private readonly focus: FocusProvider,
 	) {
 		this._disposable = Disposable.from(
-			once(container.onReady)(this.onReady, this),
 			focus.onDidRefresh(this.onFocusRefreshed, this),
 			configuration.onDidChange(this.onConfigurationChanged, this),
 		);
+		this.onReady();
 	}
 
 	dispose() {
 		this.clearRefreshTimer();
 		this._statusBarFocus?.dispose();
+		this._statusBarFocus = undefined!;
 		this._disposable.dispose();
 	}
 
 	private onConfigurationChanged(e: ConfigurationChangeEvent) {
 		if (!configuration.changed(e, 'focus.experimental.indicators')) return;
 
-		if (configuration.changed(e, 'focus.experimental.indicators.enabled')) {
-			this._statusBarFocus?.dispose();
-			this._statusBarFocus = undefined!;
+		if (configuration.changed(e, 'focus.experimental.indicators.openQuickFocus')) {
+			this.updateStatusBarFocusCommand();
+		}
 
-			if (configuration.get('focus.experimental.indicators.enabled')) {
-				this.onReady();
-			}
-		} else {
-			if (configuration.changed(e, 'focus.experimental.indicators.openQuickFocus')) {
-				this.updateStatusBarFocusCommand();
-			}
-
-			if (configuration.changed(e, 'focus.experimental.indicators.refreshRate')) {
-				this.startRefreshTimer();
-			}
+		if (configuration.changed(e, 'focus.experimental.indicators.refreshRate')) {
+			this.startRefreshTimer();
 		}
 	}
 

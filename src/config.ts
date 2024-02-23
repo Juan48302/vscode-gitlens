@@ -90,9 +90,6 @@ export interface Config {
 				readonly openQuickFocus: boolean;
 				readonly refreshRate: number;
 			};
-			readonly quickFocus: {
-				readonly enabled: boolean;
-			};
 		};
 	};
 	readonly gitCommands: {
