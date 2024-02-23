@@ -7,7 +7,7 @@ import { Schemes } from '../../constants';
 import type { Container } from '../../container';
 import type { FeatureAccess, Features, PlusFeatures } from '../../features';
 import { showCreatePullRequestPrompt, showGenericErrorMessage } from '../../messages';
-import type { ProviderIntegration } from '../../plus/integrations/providerIntegration';
+import type { HostingIntegration } from '../../plus/integrations/integration';
 import { asRepoComparisonKey } from '../../repositories';
 import { executeActionCommand } from '../../system/command';
 import { configuration } from '../../system/configuration';
@@ -645,7 +645,7 @@ export class Repository implements Disposable {
 	}
 
 	async getBestRemoteWithIntegration(options?: {
-		filter?: (remote: GitRemote, integration: ProviderIntegration) => boolean;
+		filter?: (remote: GitRemote, integration: HostingIntegration) => boolean;
 		includeDisconnected?: boolean;
 	}): Promise<GitRemote<RemoteProvider> | undefined> {
 		return this.container.git.getBestRemoteWithIntegration(this.uri, options);
@@ -792,7 +792,7 @@ export class Repository implements Disposable {
 	}
 
 	async hasRemoteWithIntegration(options?: {
-		filter?: (remote: GitRemote, integration: ProviderIntegration) => boolean;
+		filter?: (remote: GitRemote, integration: HostingIntegration) => boolean;
 		includeDisconnected?: boolean;
 	}): Promise<boolean> {
 		const remote = await this.getBestRemoteWithIntegration(options);
