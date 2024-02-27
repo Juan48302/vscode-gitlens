@@ -2,7 +2,7 @@ import { Container } from '../../container';
 import { formatDate, fromNow } from '../../system/date';
 import { memoize } from '../../system/decorators/memoize';
 import type { IssueOrPullRequest, IssueOrPullRequestState as PullRequestState } from './issue';
-import type { RemoteProviderReference } from './remoteProvider';
+import type { ProviderReference } from './remoteProvider';
 
 export type { PullRequestState };
 
@@ -127,7 +127,7 @@ export class PullRequest implements PullRequestShape {
 	readonly type = 'pullrequest';
 
 	constructor(
-		public readonly provider: RemoteProviderReference,
+		public readonly provider: ProviderReference,
 		public readonly author: {
 			readonly name: string;
 			readonly avatarUrl: string;
