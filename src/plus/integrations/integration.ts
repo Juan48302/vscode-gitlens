@@ -1,5 +1,7 @@
 import type { CancellationToken, Event, MessageItem } from 'vscode';
 import { EventEmitter, window } from 'vscode';
+import type { DynamicAutolinkReference } from '../../annotations/autolinks';
+import type { AutolinkReference } from '../../config';
 import type { Container } from '../../container';
 import { AuthenticationError, CancellationError, ProviderRequestClientError } from '../../errors';
 import type { PagedResult } from '../../git/gitProvider';
@@ -87,6 +89,12 @@ export abstract class BaseIntegration<ID extends SupportedIntegrationIds = Suppo
 		return this.id;
 	}
 
+	autolinks():
+		| (AutolinkReference | DynamicAutolinkReference)[]
+		| Promise<(AutolinkReference | DynamicAutolinkReference)[]> {
+		return [];
+	}
+
 	private get connectedKey(): `connected:${HostingIntegration['key']}` {
 		return `connected:${this.key}`;
 	}
@@ -112,11 +120,14 @@ export abstract class BaseIntegration<ID extends SupportedIntegrationIds = Suppo
 	async connect(): Promise<boolean> {
 		try {
 			const session = await this.ensureSession(true);
+			await this.providerOnConnect?.();
 			return Boolean(session);
 		} catch (ex) {
 			return false;
 		}
 	}
+
+	protected providerOnConnect?(): void | Promise<void>;
 
 	@gate()
 	@log()
@@ -175,7 +186,11 @@ export abstract class BaseIntegration<ID extends SupportedIntegrationIds = Suppo
 				this.container.integrations.disconnected(this.key);
 			}
 		}
+
+		await this.providerOnDisconnect?.();
 	}
+
+	protected providerOnDisconnect?(): void | Promise<void>;
 
 	@log()
 	async reauthenticate(): Promise<void> {
@@ -366,6 +381,13 @@ export abstract class IssueIntegration<
 		} catch (ex) {
 			return this.handleProviderException<T[] | undefined>(ex, undefined, undefined);
 		}
+	}
+
+	async getProjectsForUser(): Promise<T[] | undefined> {
+		const resources = await this.getResourcesForUser();
+		if (resources == null) return undefined;
+
+		return this.getProjectsForResources(resources);
 	}
 
 	protected abstract getProviderProjectsForResources(

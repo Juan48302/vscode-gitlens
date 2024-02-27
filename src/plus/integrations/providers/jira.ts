@@ -1,4 +1,6 @@
 import type { AuthenticationSession, CancellationToken } from 'vscode';
+import type { DynamicAutolinkReference } from '../../../annotations/autolinks';
+import type { AutolinkReference } from '../../../config';
 import type { Account } from '../../../git/models/author';
 import type { SearchedIssue } from '../../../git/models/issue';
 import { filterMap, flatten } from '../../../system/iterable';
@@ -10,16 +12,16 @@ import { IssueFilter, IssueIntegrationId, providersMetadata, toAccount, toSearch
 const metadata = providersMetadata[IssueIntegrationId.Jira];
 const authProvider = Object.freeze({ id: metadata.id, scopes: metadata.scopes });
 
-export interface JiraResourceDescriptor extends ResourceDescriptor {
-	key: string;
+export interface JiraBaseDescriptor extends ResourceDescriptor {
 	id: string;
 	name: string;
+}
+export interface JiraOrganizationDescriptor extends JiraBaseDescriptor {
+	url: string;
 	avatarUrl: string;
 }
 
-export interface JiraProjectDescriptor extends ResourceDescriptor {
-	key: string;
-	name: string;
+export interface JiraProjectDescriptor extends JiraBaseDescriptor {
 	resourceId: string;
 }
 
@@ -37,9 +39,45 @@ export class JiraIntegration extends IssueIntegration<IssueIntegrationId.Jira> {
 		return 'https://api.atlassian.com';
 	}
 
+	private _autolinks: Map<string, (AutolinkReference | DynamicAutolinkReference)[]> | undefined;
+	override autolinks(): (AutolinkReference | DynamicAutolinkReference)[] {
+		if (this._session == null || this._organizations == null || this._projects == null) return [];
+
+		this._autolinks ||= new Map<string, (AutolinkReference | DynamicAutolinkReference)[]>();
+
+		const cachedAutolinks = this._autolinks.get(this._session.accessToken);
+		if (cachedAutolinks != null) {
+			return cachedAutolinks;
+		}
+
+		const autolinks: (AutolinkReference | DynamicAutolinkReference)[] = [];
+		const organizations = this._organizations.get(this._session.accessToken);
+		if (organizations != null) {
+			for (const organization of organizations) {
+				const projects = this._projects.get(`${this._session.accessToken}:${organization.id}`);
+				if (projects != null) {
+					for (const project of projects) {
+						const prefix = `${project.key}-`;
+						autolinks.push({
+							type: 'issue',
+							url: `${organization.url}/browse/${prefix}<num>`,
+							prefix: prefix,
+							title: `Open Issue ${prefix}<num> on ${organization.name}`,
+							description: `${organization.name} Issue ${prefix}<num>`,
+						});
+					}
+				}
+			}
+		}
+
+		this._autolinks.set(this._session.accessToken, autolinks);
+
+		return autolinks;
+	}
+
 	protected override async getProviderAccountForResource(
 		{ accessToken }: AuthenticationSession,
-		resource: JiraResourceDescriptor,
+		resource: JiraOrganizationDescriptor,
 	): Promise<Account | undefined> {
 		const user = await this.api.getCurrentUserForResource(this.id, resource.id, {
 			accessToken: accessToken,
@@ -49,25 +87,71 @@ export class JiraIntegration extends IssueIntegration<IssueIntegrationId.Jira> {
 		return toAccount(user, this);
 	}
 
-	protected override async getProviderResourcesForUser({
-		accessToken,
-	}: AuthenticationSession): Promise<JiraResourceDescriptor[] | undefined> {
-		const resources = await this.api.getJiraResourcesForCurrentUser({ accessToken: accessToken });
-		return resources != null ? resources.map(r => ({ ...r, key: r.id })) : undefined;
+	private _organizations: Map<string, JiraOrganizationDescriptor[] | undefined> | undefined;
+	protected override async getProviderResourcesForUser(
+		{ accessToken }: AuthenticationSession,
+		force: boolean = false,
+	): Promise<JiraOrganizationDescriptor[] | undefined> {
+		this._organizations ||= new Map<string, JiraOrganizationDescriptor[] | undefined>();
+
+		const cachedResources = this._organizations.get(accessToken);
+
+		if (cachedResources == null || force) {
+			const resources = await this.api.getJiraResourcesForCurrentUser({ accessToken: accessToken });
+			this._organizations.set(
+				accessToken,
+				resources != null ? resources.map(r => ({ ...r, key: r.id })) : undefined,
+			);
+		}
+
+		return this._organizations.get(accessToken);
 	}
 
+	private _projects: Map<string, JiraProjectDescriptor[] | undefined> | undefined;
 	protected override async getProviderProjectsForResources(
 		{ accessToken }: AuthenticationSession,
-		resources: JiraResourceDescriptor[],
+		resources: JiraOrganizationDescriptor[],
+		force: boolean = false,
 	): Promise<JiraProjectDescriptor[] | undefined> {
-		const jiraProjectBaseDescriptors = await this.api.getJiraProjectsForResources(
-			resources.map(r => r.id),
-			{ accessToken: accessToken },
-		);
-		return jiraProjectBaseDescriptors?.map(jiraProjectBaseDescriptor => ({
-			...jiraProjectBaseDescriptor,
-			key: jiraProjectBaseDescriptor.name,
-		}));
+		this._projects ||= new Map<string, JiraProjectDescriptor[] | undefined>();
+
+		let resourcesWithoutProjects = [];
+		if (force) {
+			resourcesWithoutProjects = resources;
+		} else {
+			for (const resource of resources) {
+				const resourceKey = `${accessToken}:${resource.id}`;
+				const cachedProjects = this._projects.get(resourceKey);
+				if (cachedProjects == null) {
+					resourcesWithoutProjects.push(resource);
+				}
+			}
+		}
+
+		if (resourcesWithoutProjects.length > 0) {
+			const jiraProjectBaseDescriptors = await this.api.getJiraProjectsForResources(
+				resourcesWithoutProjects.map(r => r.id),
+				{ accessToken: accessToken },
+			);
+
+			for (const resource of resourcesWithoutProjects) {
+				const projects = jiraProjectBaseDescriptors?.filter(p => p.resourceId === resource.id);
+				if (projects != null) {
+					this._projects.set(
+						`${accessToken}:${resource.id}`,
+						projects.map(p => ({ ...p })),
+					);
+				}
+			}
+		}
+
+		return resources.reduce<JiraProjectDescriptor[]>((projects, resource) => {
+			const resourceProjects = this._projects!.get(`${accessToken}:${resource.id}`);
+			if (resourceProjects != null) {
+				projects.push(...resourceProjects);
+			}
+			return projects;
+		}, []);
 	}
 
 	protected override async getProviderIssuesForProject(
@@ -129,7 +213,7 @@ export class JiraIntegration extends IssueIntegration<IssueIntegrationId.Jira> {
 
 	protected override async searchProviderMyIssues(
 		session: AuthenticationSession,
-		resources?: JiraResourceDescriptor[],
+		resources?: JiraOrganizationDescriptor[],
 		_cancellation?: CancellationToken,
 	): Promise<SearchedIssue[] | undefined> {
 		const myResources = resources ?? (await this.getProviderResourcesForUser(session));
@@ -150,5 +234,52 @@ export class JiraIntegration extends IssueIntegration<IssueIntegrationId.Jira> {
 		}
 
 		return results;
+	}
+
+	protected override async providerOnConnect(): Promise<void> {
+		this._autolinks = undefined;
+		if (this._session == null) return;
+		const storedOrganizations = this.container.storage.get(`jira:${this._session.accessToken}:organizations`);
+		const storedProjects = this.container.storage.get(`jira:${this._session.accessToken}:projects`);
+		let organizations = storedOrganizations?.data?.map(o => ({ ...o }));
+		let projects = storedProjects?.data?.map(p => ({ ...p }));
+
+		if (storedOrganizations == null) {
+			organizations = await this.getProviderResourcesForUser(this._session, true);
+			await this.container.storage.store(`jira:${this._session.accessToken}:organizations`, {
+				v: 1,
+				timestamp: Date.now(),
+				data: organizations,
+			});
+		}
+
+		this._organizations ||= new Map<string, JiraOrganizationDescriptor[] | undefined>();
+		this._organizations.set(this._session.accessToken, organizations);
+
+		if (storedProjects == null && organizations?.length) {
+			projects = await this.getProviderProjectsForResources(this._session, organizations);
+			await this.container.storage.store(`jira:${this._session.accessToken}:projects`, {
+				v: 1,
+				timestamp: Date.now(),
+				data: projects,
+			});
+		}
+
+		this._projects ||= new Map<string, JiraProjectDescriptor[] | undefined>();
+		for (const project of projects ?? []) {
+			const projectKey = `${this._session.accessToken}:${project.resourceId}`;
+			const projects = this._projects.get(projectKey);
+			if (projects == null) {
+				this._projects.set(projectKey, [project]);
+			} else {
+				projects.push(project);
+			}
+		}
+	}
+
+	protected override providerOnDisconnect(): void {
+		this._organizations = undefined;
+		this._projects = undefined;
+		this._autolinks = undefined;
 	}
 }

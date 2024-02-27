@@ -12,6 +12,7 @@ import { filterMap, flatten } from '../../system/iterable';
 import type {
 	HostingIntegration,
 	Integration,
+	IntegrationType,
 	IssueIntegration,
 	ProviderKey,
 	ResourceDescriptor,
@@ -162,6 +163,12 @@ export class IntegrationService implements Disposable {
 			default:
 				return undefined;
 		}
+	}
+
+	getConnected(type: 'issues'): IssueIntegration[];
+	getConnected(type: 'hosting'): HostingIntegration[];
+	getConnected(type: IntegrationType): Integration[] {
+		return [...this._integrations.values()].filter(p => p.maybeConnected && p.type === type);
 	}
 
 	async getMyIssues(
