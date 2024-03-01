@@ -2,9 +2,10 @@ import type { ConfigurationChangeEvent, StatusBarItem, ThemeColor } from 'vscode
 import { Disposable, MarkdownString, StatusBarAlignment, window } from 'vscode';
 import type { Container } from '../../container';
 import { configuration } from '../../system/configuration';
+import { groupByMap } from '../../system/iterable';
 import { pluralize } from '../../system/string';
-import type { FocusActionGroup, FocusItem, FocusProvider, FocusRefreshEvent } from './focusProvider';
-import { actionGroups } from './focusProvider';
+import type { FocusItem, FocusProvider, FocusRefreshEvent } from './focusProvider';
+import { focusGroups, groupAndSortFocusItems } from './focusProvider';
 
 export class FocusIndicator implements Disposable {
 	private readonly _disposable: Disposable;
@@ -46,7 +47,7 @@ export class FocusIndicator implements Disposable {
 	private onFocusRefreshed(e: FocusRefreshEvent) {
 		if (this._statusBarFocus == null) return;
 
-		this.updateStatusBar(this._statusBarFocus, e.groupedItems);
+		this.updateStatusBar(this._statusBarFocus, e.items);
 	}
 
 	private onReady(): void {
@@ -83,11 +84,11 @@ export class FocusIndicator implements Disposable {
 		if (refreshInterval <= 0) return;
 
 		if (refreshNow) {
-			void this.focus.getRankedAndGroupedItems({ force: true });
+			void this.focus.getCategorizedItems({ force: true });
 		}
 
 		this._refreshTimer = setInterval(() => {
-			void this.focus.getRankedAndGroupedItems({ force: true });
+			void this.focus.getCategorizedItems({ force: true });
 		}, refreshInterval);
 	}
 
@@ -98,17 +99,18 @@ export class FocusIndicator implements Disposable {
 		}
 	}
 
-	private updateStatusBar(statusBarFocus: StatusBarItem, groupedItems: Map<FocusActionGroup, FocusItem[]>) {
+	private updateStatusBar(statusBarFocus: StatusBarItem, categorizedItems: FocusItem[]) {
 		let color: string | ThemeColor | undefined = undefined;
 		let topItem: FocusItem | undefined;
 
-		if (groupedItems == null) {
+		const groupedItems = groupAndSortFocusItems(categorizedItems);
+		if (!groupedItems?.size) {
 			statusBarFocus.tooltip = 'You are all caught up!';
 		} else {
 			statusBarFocus.tooltip = new MarkdownString('', true);
 			statusBarFocus.tooltip.supportHtml = true;
 
-			for (const group of actionGroups) {
+			for (const group of focusGroups) {
 				const items = groupedItems.get(group);
 				if (items?.length) {
 					if (statusBarFocus.tooltip.value.length > 0) {
@@ -126,28 +128,61 @@ export class FocusIndicator implements Disposable {
 							color = '#00FF00';
 							topItem ??= items[0];
 							break;
-						case 'failed-checks': {
-							const message =
-								items.length === 1
-									? `You have a pull request that has failed CI checks.`
-									: `You have ${items.length} pull requests that have failed CI checks.`;
-							statusBarFocus.tooltip.appendMarkdown(
-								`<span style="color:#FF0000;">$(circle-filled)</span> ${message}`,
+						case 'blocked': {
+							const action = groupByMap(items, i =>
+								i.actionableCategory === 'failed-checks' ||
+								i.actionableCategory === 'mergeable-conflicts' ||
+								i.actionableCategory === 'conflicts'
+									? i.actionableCategory
+									: 'blocked',
 							);
 
-							color ??= '#FF0000';
-							topItem ??= items[0];
-							break;
-						}
-						case 'conflicts': {
-							const message =
-								items.length === 1
-									? `You have a pull request that can be merged once conflicts are resolved.`
-									: `You have ${items.length} pull requests that can be merged once conflicts are resolved.`;
+							let actionGroupItems = action.get('failed-checks');
+							if (actionGroupItems?.length) {
+								const message =
+									actionGroupItems.length === 1
+										? `You have a pull request that has failed CI checks.`
+										: `You have ${actionGroupItems.length} pull requests that have failed CI checks.`;
+								statusBarFocus.tooltip.appendMarkdown(
+									`<span style="color:#FF0000;">$(circle-filled)</span> ${message}`,
+								);
+							}
 
-							statusBarFocus.tooltip.appendMarkdown(
-								`<span style="color:#FF0000;">$(circle-filled)</span> ${message}`,
-							);
+							actionGroupItems = action.get('mergeable-conflicts');
+							if (actionGroupItems?.length) {
+								const message =
+									actionGroupItems.length === 1
+										? `You have a pull request that can be merged once conflicts are resolved.`
+										: `You have ${actionGroupItems.length} pull requests that can be merged once conflicts are resolved.`;
+
+								statusBarFocus.tooltip.appendMarkdown(
+									`<span style="color:#FF0000;">$(circle-filled)</span> ${message}`,
+								);
+							}
+
+							actionGroupItems = action.get('conflicts');
+							if (actionGroupItems?.length) {
+								const message =
+									actionGroupItems.length === 1
+										? `You have a pull request that has conflicts.`
+										: `You have ${actionGroupItems.length} pull requests that have conflicts.`;
+
+								statusBarFocus.tooltip.appendMarkdown(
+									`<span style="color:#FF0000;">$(circle-filled)</span> ${message}`,
+								);
+							}
+
+							actionGroupItems = action.get('blocked');
+							if (actionGroupItems?.length) {
+								const message =
+									actionGroupItems.length === 1
+										? `You have a pull request that needs attention.`
+										: `You have ${actionGroupItems.length} pull requests that need attention.`;
+
+								statusBarFocus.tooltip.appendMarkdown(
+									`<span style="color:#FF0000;">$(circle-filled)</span> ${message}`,
+								);
+							}
 
 							color ??= '#FF0000';
 							topItem ??= items[0];
@@ -163,7 +198,7 @@ export class FocusIndicator implements Disposable {
 
 							color ??= '#FFFF00';
 							break;
-						case 'changes-requested':
+						case 'follow-up':
 							statusBarFocus.tooltip.appendMarkdown(
 								`<span style="color:#FFA500;">$(circle-filled)</span> You have ${pluralize(
 									'pull request',

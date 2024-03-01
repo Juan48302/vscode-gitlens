@@ -1,4 +1,4 @@
-import { Uri } from 'vscode';
+import { ThemeIcon, Uri } from 'vscode';
 import { getSteps } from '../../commands/gitCommands.utils';
 import type {
 	PartialStepState,
@@ -29,44 +29,12 @@ import type { DirectiveQuickPickItem } from '../../quickpicks/items/directive';
 import { createDirectiveQuickPickItem, Directive } from '../../quickpicks/items/directive';
 import { command } from '../../system/command';
 import { fromNow } from '../../system/date';
-import { groupByMap } from '../../system/iterable';
 import { interpolate } from '../../system/string';
 import { openUrl } from '../../system/utils';
-import type { FocusAction, FocusActionGroup, FocusItem } from './focusProvider';
+import type { FocusAction, FocusActionCategory, FocusGroup, FocusItem } from './focusProvider';
+import { groupAndSortFocusItems } from './focusProvider';
 
-export const groups = [
-	'pinned',
-	'mergeable',
-	'blocked',
-	'follow-up',
-	'needs-attention',
-	'needs-review',
-	'waiting-for-review',
-] as const;
-
-export type FocusGroup = (typeof groups)[number];
-
-const actionGroupToGroupMap = new Map<FocusActionGroup, FocusGroup>([
-	['mergeable', 'mergeable'],
-	['mergeable-conflicts', 'blocked'],
-	['failed-checks', 'blocked'],
-	['conflicts', 'blocked'],
-	['needs-review', 'needs-review'],
-	['changes-requested', 'follow-up'],
-	['waiting-for-review', 'waiting-for-review'],
-]);
-
-const groupMap = new Map<FocusGroup, string>([
-	['pinned', 'Pinned'],
-	['mergeable', 'Ready to Merge'],
-	['blocked', 'Blocking'],
-	['follow-up', 'Requires Follow-up'],
-	['needs-attention', 'Needs Your Attention'],
-	['needs-review', 'Needs Your Review'],
-	['waiting-for-review', 'Waiting for Review'],
-]);
-
-const actionGroupMap = new Map<FocusActionGroup, string[]>([
+const actionGroupMap = new Map<FocusActionCategory, string[]>([
 	['mergeable', ['Ready to Merge', 'Ready to merge']],
 	['mergeable-conflicts', ['Resolve Conflicts', 'You need to resolve merge conflicts, before this can be merged']],
 	['failed-checks', ['Failed Checks', 'You need to resolve the failing checks']],
@@ -76,11 +44,23 @@ const actionGroupMap = new Map<FocusActionGroup, string[]>([
 	['waiting-for-review', ['Waiting for Review', 'Waiting for reviewers to approve this pull request']],
 ]);
 
+const groupMap = new Map<FocusGroup, [string, ThemeIcon | undefined]>([
+	['pinned', ['Pinned', new ThemeIcon('pinned')]],
+	['mergeable', ['Ready to Merge', new ThemeIcon('rocket')]],
+	['blocked', ['Blocked', new ThemeIcon('error')]], //bracket-error
+	['follow-up', ['Requires Follow-up', new ThemeIcon('report')]],
+	['needs-attention', ['Needs Your Attention', new ThemeIcon('bell-dot')]], //comment-unresolved
+	['needs-review', ['Needs Your Review', new ThemeIcon('comment-draft')]], // feedback
+	['waiting-for-review', ['Waiting for Review', new ThemeIcon('gitlens-clock')]],
+	['snoozed', ['Snoozed', new ThemeIcon('bell-slash')]],
+]);
+
 export interface FocusItemQuickPickItem extends QuickPickItemOfT<FocusItem> {}
 
 interface Context {
-	items: Map<FocusActionGroup, FocusItem[]>;
+	items: FocusItem[];
 	title: string;
+	collapsed: Map<FocusGroup, boolean>;
 }
 
 interface State {
@@ -123,8 +103,9 @@ export class FocusCommand extends QuickCommand<State> {
 		}
 
 		const context: Context = {
-			items: await this.container.focus.getRankedAndGroupedItems(),
+			items: await this.container.focus.getCategorizedItems(),
 			title: this.title,
+			collapsed: new Map<FocusGroup, boolean>([['snoozed', true]]),
 		};
 
 		while (this.canStepsContinue(state)) {
@@ -206,70 +187,62 @@ export class FocusCommand extends QuickCommand<State> {
 		context: Context,
 		{ picked }: { picked?: string },
 	): StepResultGenerator<FocusItem> {
-		function getItems(groupedItems: Map<FocusActionGroup, FocusItem[]>) {
+		function getItems(categorizedItems: FocusItem[]) {
 			const items: (FocusItemQuickPickItem | DirectiveQuickPickItem)[] = [];
 
-			if (groupedItems?.size) {
-				let uiGroups = groupByMap(groupedItems, ([group]) => actionGroupToGroupMap.get(group));
-				// Find and add pinned items to the pinned group.
-				// TODO: Improve this. We should not be looping through grouped items multiple times.
-				for (const [group, groupItems] of groupedItems) {
-					const pinned = groupItems.filter(i => i.pinned);
-					if (pinned.length) {
-						const pinnedGroup = uiGroups.get('pinned');
-						if (pinnedGroup === undefined) {
-							uiGroups.set('pinned', [[group, pinned]]);
-						} else {
-							pinnedGroup.push([group, pinned]);
-						}
-					}
-				}
+			if (categorizedItems?.length) {
+				const uiGroups = groupAndSortFocusItems(categorizedItems);
+				for (const [ui, groupItems] of uiGroups) {
+					if (!groupItems.length) continue;
 
-				uiGroups = new Map([...uiGroups].sort((a, b) => groups.indexOf(a[0]!) - groups.indexOf(b[0]!)));
+					items.push(
+						createQuickPickSeparator(groupItems.length ? groupItems.length.toString() : undefined),
+						createDirectiveQuickPickItem(Directive.Reload, false, {
+							label: `${groupMap.get(ui)![0]?.toUpperCase()}\u00a0$(${
+								context.collapsed.get(ui) ? 'chevron-down' : 'chevron-up'
+							})`, //'\u00a0',
+							//detail: groupMap.get(group)?.[0].toUpperCase(),
+							iconPath: groupMap.get(ui)![1],
+							onDidSelect: () => {
+								context.collapsed.set(ui, !context.collapsed.get(ui));
+							},
+						}),
+					);
 
-				for (const [ui, groupArray] of uiGroups) {
-					for (const [group, groupItems] of groupArray) {
-						if (!groupItems.length) continue;
+					if (context.collapsed.get(ui)) continue;
 
-						items.push(
-							createQuickPickSeparator(),
-							createDirectiveQuickPickItem(Directive.Noop, false, {
-								label: groupMap.get(ui!)?.toUpperCase(), //'\u00a0',
-								//detail: groupMap.get(group)?.[0].toUpperCase(),
-							}),
-							// createQuickPickSeparator(),
-							...groupItems.map(i => {
-								const buttons = [];
+					items.push(
+						...groupItems.map(i => {
+							const buttons = [];
 
-								if (group === 'mergeable') {
-									buttons.push(
-										MergeQuickInputButton,
-										i.pinned ? UnpinQuickInputButton : PinQuickInputButton,
-									);
-								} else if (i.pinned) {
-									buttons.push(UnpinQuickInputButton);
-								} else if (i.snoozed) {
-									buttons.push(UnsnoozeQuickInputButton);
-								} else {
-									buttons.push(PinQuickInputButton, SnoozeQuickInputButton);
-								}
+							if (i.actionableCategory === 'mergeable') {
+								buttons.push(
+									MergeQuickInputButton,
+									i.pinned ? UnpinQuickInputButton : PinQuickInputButton,
+								);
+							} else if (i.pinned) {
+								buttons.push(UnpinQuickInputButton);
+							} else if (i.snoozed) {
+								buttons.push(UnsnoozeQuickInputButton);
+							} else {
+								buttons.push(PinQuickInputButton, SnoozeQuickInputButton);
+							}
 
-								return {
-									label: i.title,
-									// description: `${i.repoAndOwner}#${i.id}, by @${i.author}`,
-									description: `#${i.id}`,
-									detail: `${actionGroupMap.get(i.actionGroup)![0]} \u2022  ${fromNow(i.date)} by @${
-										i.author
-									} \u2022 ${i.repoAndOwner}`,
+							return {
+								label: i.title,
+								// description: `${i.repoAndOwner}#${i.id}, by @${i.author}`,
+								description: `#${i.id}`,
+								detail: `${actionGroupMap.get(i.actionableCategory)![0]} \u2022  ${fromNow(
+									i.date,
+								)} by @${i.author} \u2022 ${i.repoAndOwner}`,
 
-									buttons: buttons,
-									iconPath: Uri.parse(i.avatarUrl),
-									item: i,
-									picked: i.id === picked,
-								};
-							}),
-						);
-					}
+								buttons: buttons,
+								iconPath: Uri.parse(i.avatarUrl),
+								item: i,
+								picked: i.id === picked,
+							};
+						}),
+					);
 				}
 			}
 
@@ -282,14 +255,16 @@ export class FocusCommand extends QuickCommand<State> {
 			title: context.title,
 			placeholder: !items.length ? 'All done! Take a vacation' : 'Choose an item to focus on',
 			matchOnDetail: true,
+			ignoreFocusOut: true,
 			items: !items.length ? [createDirectiveQuickPickItem(Directive.Cancel, undefined, { label: 'OK' })] : items,
 			buttons: [RefreshQuickInputButton],
+			// onDidChangeValue: async (quickpick, value) => {},
 			onDidClickButton: async (quickpick, button) => {
 				if (button === RefreshQuickInputButton) {
 					quickpick.busy = true;
 
 					try {
-						context.items = await this.container.focus.getRankedAndGroupedItems({ force: true });
+						context.items = await this.container.focus.getCategorizedItems({ force: true });
 						const items = getItems(context.items);
 
 						quickpick.placeholder = !items.length
@@ -324,7 +299,7 @@ export class FocusCommand extends QuickCommand<State> {
 				quickpick.busy = true;
 
 				try {
-					context.items = await this.container.focus.getRankedAndGroupedItems();
+					context.items = await this.container.focus.getCategorizedItems();
 					const items = getItems(context.items);
 
 					quickpick.placeholder = !items.length ? 'All done! Take a vacation' : 'Choose an item to focus on';
@@ -344,7 +319,9 @@ export class FocusCommand extends QuickCommand<State> {
 			createDirectiveQuickPickItem(Directive.Noop, false, {
 				label: state.item.title,
 				description: `${state.item.repoAndOwner}#${state.item.id} \u2022 ${fromNow(state.item.date)}`,
-				detail: interpolate(actionGroupMap.get(state.item.actionGroup)![1], { author: state.item.author }),
+				detail: interpolate(actionGroupMap.get(state.item.actionableCategory)![1], {
+					author: state.item.author,
+				}),
 				iconPath: Uri.parse(state.item.avatarUrl),
 			}),
 			createQuickPickSeparator(),

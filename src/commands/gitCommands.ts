@@ -421,6 +421,7 @@ export class GitCommandsCommand extends Command {
 				case Directive.Back:
 					return (await commandsStep?.command?.previous()) ?? commandsStep;
 				case Directive.Noop:
+				case Directive.Reload:
 					return commandsStep.command?.retry();
 				case Directive.Cancel:
 				default:
@@ -849,6 +850,8 @@ export class GitCommandsCommand extends Command {
 						if (items.length === 1) {
 							const [item] = items;
 							if (isDirectiveQuickPickItem(item)) {
+								await item.onDidSelect?.();
+
 								switch (item.directive) {
 									case Directive.Cancel:
 										resolve(undefined);
@@ -860,6 +863,13 @@ export class GitCommandsCommand extends Command {
 
 									case Directive.LoadMore:
 										void loadMore();
+										return;
+
+									case Directive.Noop:
+										return;
+
+									case Directive.Reload:
+										resolve(await commandsStep.command?.retry());
 										return;
 
 									case Directive.StartPreviewTrial:
@@ -880,9 +890,6 @@ export class GitCommandsCommand extends Command {
 									case Directive.RequiresPaidSubscription:
 										void Container.instance.subscription.purchase();
 										resolve(undefined);
-										return;
-
-									case Directive.Noop:
 										return;
 								}
 							}
