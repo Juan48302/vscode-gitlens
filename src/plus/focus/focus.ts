@@ -31,6 +31,7 @@ import { command } from '../../system/command';
 import { fromNow } from '../../system/date';
 import { interpolate } from '../../system/string';
 import { openUrl } from '../../system/utils';
+import { HostedProviderId } from '../integrations/providers/models';
 import type { FocusAction, FocusActionCategory, FocusGroup, FocusItem } from './focusProvider';
 import { groupAndSortFocusItems } from './focusProvider';
 
@@ -130,9 +131,15 @@ export class FocusCommand extends QuickCommand<State> {
 			}
 
 			switch (state.action) {
-				case 'merge':
-					// await this.container.focus.merge(state.item);
+				case 'merge': {
+					// TODO: Move all the action logic to a Focus Provider fn and use eventing to refresh.
+					if (state.item.uniqueId == null || state.item.ref?.sha == null) break;
+					// TODO: This should get the provider from the item.
+					const github = this.container.integrations.get(HostedProviderId.GitHub);
+					await github.mergePullRequest({ id: state.item.uniqueId, headRefSha: state.item.ref.sha });
+					void this.container.focus.getCategorizedItems({ force: true });
 					break;
+				}
 				case 'open':
 					void openUrl(state.item.url);
 					break;

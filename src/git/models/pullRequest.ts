@@ -24,6 +24,12 @@ export const enum PullRequestStatusCheckRollupState {
 	Failed = 'failed',
 }
 
+export const enum PullRequestMergeMethod {
+	Merge = 'merge',
+	Squash = 'squash',
+	Rebase = 'rebase',
+}
+
 export interface PullRequestRef {
 	owner: string;
 	repo: string;
