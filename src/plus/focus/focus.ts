@@ -19,9 +19,9 @@ import {
 	FeedbackQuickInputButton,
 	LaunchpadSettingsQuickInputButton,
 	MergeQuickInputButton,
-	OpenInEditorQuickInputButton,
 	OpenOnGitHubQuickInputButton,
 	OpenOnWebQuickInputButton,
+	OpenWorktreeInNewWindowQuickInputButton,
 	PinQuickInputButton,
 	RefreshQuickInputButton,
 	SnoozeQuickInputButton,
@@ -29,13 +29,12 @@ import {
 	UnsnoozeQuickInputButton,
 } from '../../commands/quickCommand.buttons';
 import type { LaunchpadTelemetryContext, Source, Sources, TelemetryEvents } from '../../constants';
-import { Commands, previewBadge } from '../../constants';
+import { previewBadge } from '../../constants';
 import type { Container } from '../../container';
 import type { QuickPickItemOfT } from '../../quickpicks/items/common';
 import { createQuickPickItemOfT, createQuickPickSeparator } from '../../quickpicks/items/common';
 import type { DirectiveQuickPickItem } from '../../quickpicks/items/directive';
 import { createDirectiveQuickPickItem, Directive } from '../../quickpicks/items/directive';
-import { executeCommand } from '../../system/command';
 import { getScopedCounter } from '../../system/counter';
 import { fromNow } from '../../system/date';
 import { interpolate, pluralize } from '../../system/string';
@@ -56,6 +55,9 @@ import type {
 } from './focusProvider';
 import {
 	countFocusItemGroups,
+	focusGroupIconMap,
+	focusGroupLabelMap,
+	focusGroups,
 	getFocusItemIdHash,
 	groupAndSortFocusItems,
 	supportedFocusIntegrations,
@@ -73,20 +75,6 @@ const actionGroupMap = new Map<FocusActionCategory, string[]>([
 	['waiting-for-review', ['Waiting for Review', 'Waiting for reviewers to approve this pull request']],
 	['draft', ['Draft', 'Continue working on your draft']],
 	['other', ['Other', `Opened by \${author} \${createdDateRelative}`]],
-]);
-
-const groupMap = new Map<FocusGroup, [string, string | undefined]>([
-	['current-branch', ['Current Branch', 'git-branch']],
-	['pinned', ['Pinned', 'pinned']],
-	['mergeable', ['Ready to Merge', 'rocket']],
-	['blocked', ['Blocked', 'error']], //bracket-error
-	['follow-up', ['Requires Follow-up', 'report']],
-	// ['needs-attention', ['Needs Your Attention', 'bell-dot']], //comment-unresolved
-	['needs-review', ['Needs Your Review', 'comment-unresolved']], // feedback
-	['waiting-for-review', ['Waiting for Review', 'gitlens-clock']],
-	['draft', ['Draft', 'git-pull-request-draft']],
-	['other', ['Other', 'ellipsis']],
-	['snoozed', ['Snoozed', 'bell-slash']],
 ]);
 
 export interface FocusItemQuickPickItem extends QuickPickItemOfT<FocusItem> {
@@ -193,7 +181,7 @@ export class FocusCommand extends QuickCommand<State> {
 		const collapsed = new Map<FocusGroup, boolean>(storedCollapsed.map(g => [g, true]));
 		if (state.initialGroup != null) {
 			// set all to true except the initial group
-			for (const [group] of groupMap) {
+			for (const group of focusGroups) {
 				collapsed.set(group, group !== state.initialGroup);
 			}
 		}
@@ -296,9 +284,12 @@ export class FocusCommand extends QuickCommand<State> {
 					case 'show-overview':
 						void this.container.focus.switchTo(state.item);
 						break;
+					case 'open-worktree':
+						void this.container.focus.switchTo(state.item, { skipWorktreeConfirmations: true });
+						break;
 					case 'switch-and-code-suggest':
 					case 'code-suggest':
-						void this.container.focus.switchTo(state.item, true);
+						void this.container.focus.switchTo(state.item, { startCodeSuggestion: true });
 						break;
 					case 'open-changes':
 						void this.container.focus.openChanges(state.item);
@@ -345,9 +336,11 @@ export class FocusCommand extends QuickCommand<State> {
 					items.push(
 						createQuickPickSeparator(groupItems.length ? groupItems.length.toString() : undefined),
 						createDirectiveQuickPickItem(Directive.Reload, false, {
-							label: `$(${context.collapsed.get(ui) ? 'chevron-down' : 'chevron-up'})\u00a0\u00a0$(${
-								groupMap.get(ui)![1]
-							})\u00a0\u00a0${groupMap.get(ui)![0]?.toUpperCase()}`, //'\u00a0',
+							label: `$(${
+								context.collapsed.get(ui) ? 'chevron-down' : 'chevron-up'
+							})\u00a0\u00a0${focusGroupIconMap.get(ui)!}\u00a0\u00a0${focusGroupLabelMap
+								.get(ui)
+								?.toUpperCase()}`, //'\u00a0',
 							//detail: groupMap.get(group)?.[0].toUpperCase(),
 							onDidSelect: () => {
 								const collapsed = !context.collapsed.get(ui);
@@ -388,11 +381,16 @@ export class FocusCommand extends QuickCommand<State> {
 							buttons.push(
 								i.viewer.pinned ? UnpinQuickInputButton : PinQuickInputButton,
 								i.viewer.snoozed ? UnsnoozeQuickInputButton : SnoozeQuickInputButton,
-								OpenOnGitHubQuickInputButton,
 							);
 
+							if (!i.openRepository?.localBranch?.current) {
+								buttons.push(OpenWorktreeInNewWindowQuickInputButton);
+							}
+
+							buttons.push(OpenOnGitHubQuickInputButton);
+
 							return {
-								label: i.title,
+								label: i.title.length > 60 ? `${i.title.substring(0, 60)}...` : i.title,
 								// description: `${i.repoAndOwner}#${i.id}, by @${i.author}`,
 								description: `\u00a0 ${i.repository.owner.login}/${i.repository.name}#${i.id} \u00a0 ${
 									i.codeSuggestionsCount > 0
@@ -463,7 +461,7 @@ export class FocusCommand extends QuickCommand<State> {
 			items: items,
 			buttons: [
 				FeedbackQuickInputButton,
-				OpenInEditorQuickInputButton,
+				OpenOnWebQuickInputButton,
 				LaunchpadSettingsQuickInputButton,
 				RefreshQuickInputButton,
 			],
@@ -480,9 +478,9 @@ export class FocusCommand extends QuickCommand<State> {
 						void openUrl('https://github.com/gitkraken/vscode-gitlens/discussions/3286');
 						break;
 
-					case OpenInEditorQuickInputButton:
-						this.sendTitleActionTelemetry('open-in-editor', context);
-						void executeCommand(Commands.ShowFocusPage);
+					case OpenOnWebQuickInputButton:
+						this.sendTitleActionTelemetry('open-on-gkdev', context);
+						void openUrl(this.container.focus.generateWebUrl());
 						break;
 					case RefreshQuickInputButton:
 						this.sendTitleActionTelemetry('refresh', context);
@@ -521,6 +519,11 @@ export class FocusCommand extends QuickCommand<State> {
 					case MergeQuickInputButton:
 						this.sendItemActionTelemetry('merge', item, group, context);
 						await this.container.focus.merge(item);
+						break;
+
+					case OpenWorktreeInNewWindowQuickInputButton:
+						this.sendItemActionTelemetry('open-worktree', item, group, context);
+						await this.container.focus.switchTo(item, { skipWorktreeConfirmations: true });
 						break;
 				}
 
@@ -589,6 +592,7 @@ export class FocusCommand extends QuickCommand<State> {
 							{
 								label: 'Merge...',
 								detail: `Will merge ${from}${into}`,
+								buttons: [OpenOnGitHubQuickInputButton],
 							},
 							action,
 						),
@@ -600,6 +604,7 @@ export class FocusCommand extends QuickCommand<State> {
 						createQuickPickItemOfT(
 							{
 								label: `${this.getOpenActionLabel(state.item.actionableCategory)} on GitHub`,
+								buttons: [OpenOnGitHubQuickInputButton],
 							},
 							action,
 						),
@@ -611,6 +616,17 @@ export class FocusCommand extends QuickCommand<State> {
 							{
 								label: 'Switch to Branch or Worktree',
 								detail: 'Will checkout the branch, create or open a worktree',
+							},
+							action,
+						),
+					);
+					break;
+				case 'open-worktree':
+					confirmations.push(
+						createQuickPickItemOfT(
+							{
+								label: 'Open Worktree in New Window',
+								detail: 'Will create or open a worktree in a new window',
 							},
 							action,
 						),
@@ -813,12 +829,17 @@ export class FocusCommand extends QuickCommand<State> {
 			status = `$(pass) No conflicts`;
 		}
 
-		return createQuickPickItemOfT({ label: status }, 'soft-open');
+		return createQuickPickItemOfT({ label: status, buttons: [OpenOnGitHubQuickInputButton] }, 'soft-open');
 	}
 
 	private getFocusItemReviewInformation(item: FocusItem): QuickPickItemOfT<FocusAction>[] {
 		if (item.reviews == null || item.reviews.length === 0) {
-			return [createQuickPickItemOfT({ label: `$(info) No reviewers have been assigned` }, 'soft-open')];
+			return [
+				createQuickPickItemOfT(
+					{ label: `$(info) No reviewers have been assigned`, buttons: [OpenOnGitHubQuickInputButton] },
+					'soft-open',
+				),
+			];
 		}
 
 		const reviewInfo: QuickPickItemOfT<FocusAction>[] = [];
@@ -845,7 +866,12 @@ export class FocusCommand extends QuickCommand<State> {
 			}
 
 			if (reviewLabel != null) {
-				reviewInfo.push(createQuickPickItemOfT({ label: reviewLabel, iconPath: iconPath }, 'soft-open'));
+				reviewInfo.push(
+					createQuickPickItemOfT(
+						{ label: reviewLabel, iconPath: iconPath, buttons: [OpenOnGitHubQuickInputButton] },
+						'soft-open',
+					),
+				);
 			}
 		}
 

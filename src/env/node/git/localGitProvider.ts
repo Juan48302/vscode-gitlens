@@ -81,7 +81,6 @@ import type { GitFile, GitFileStatus } from '../../../git/models/file';
 import { GitFileChange } from '../../../git/models/file';
 import type {
 	GitGraph,
-	GitGraphHostingServiceType,
 	GitGraphRow,
 	GitGraphRowContexts,
 	GitGraphRowHead,
@@ -226,7 +225,8 @@ const driveLetterRegex = /(?<=^\/?)([a-zA-Z])(?=:\/)/;
 const userConfigRegex = /^user\.(name|email) (.*)$/gm;
 const mappedAuthorRegex = /(.+)\s<(.+)>/;
 const stashSummaryRegex =
-	/(?:(?:(?<wip>WIP) on|On) (?<onref>[^/](?!.*\/\.)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)[^\000-\037\177 ~^:?*[\\]+[^./]):\s*)?(?<summary>.*)$/s;
+	// eslint-disable-next-line no-control-regex
+	/(?:(?:(?<wip>WIP) on|On) (?<onref>[^/](?!.*\/\.)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)[^\x00-\x1F\x7F ~^:?*[\\]+[^./]):\s*)?(?<summary>.*)$/s;
 
 const reflogCommands = ['merge', 'pull'];
 
@@ -2305,6 +2305,7 @@ export class LocalGitProvider implements GitProvider, Disposable {
 		const defaultLimit = options?.limit ?? configuration.get('graph.defaultItemLimit') ?? 5000;
 		const defaultPageLimit = configuration.get('graph.pageItemLimit') ?? 1000;
 		const ordering = configuration.get('graph.commitOrdering', undefined, 'date');
+		const onlyFollowFirstParent = configuration.get('graph.onlyFollowFirstParent', undefined, false);
 
 		const deferStats = options?.include?.stats; // && defaultLimit > 1000;
 
@@ -2369,6 +2370,9 @@ export class LocalGitProvider implements GitProvider, Disposable {
 
 			do {
 				const args = [...parser.arguments, `--${ordering}-order`, '--all'];
+				if (onlyFollowFirstParent) {
+					args.push('--first-parent');
+				}
 				if (cursor?.skip) {
 					args.push(`--skip=${cursor.skip}`);
 				}
@@ -2486,12 +2490,12 @@ export class LocalGitProvider implements GitProvider, Disposable {
 				refRemoteHeads = [];
 				refTags = [];
 				contexts = {};
-				head = false;
 
 				if (commit.tips) {
 					groupedRefs.clear();
 
 					for (tip of commit.tips.split(', ')) {
+						head = false;
 						if (tip === 'refs/stash') continue;
 
 						if (tip.startsWith('tag: ')) {
@@ -2564,7 +2568,7 @@ export class LocalGitProvider implements GitProvider, Disposable {
 									avatarUrl: avatarUrl,
 									context: serializeWebviewItemContext<GraphItemRefContext>(context),
 									current: tip === headRefUpstreamName,
-									hostingServiceType: remote.provider?.id as GitGraphHostingServiceType,
+									hostingServiceType: remote.provider?.gkProviderId,
 								};
 								refRemoteHeads.push(refRemoteHead);
 
@@ -2723,7 +2727,7 @@ export class LocalGitProvider implements GitProvider, Disposable {
 
 				rows.push({
 					sha: commit.sha,
-					parents: parents,
+					parents: onlyFollowFirstParent ? [parents[0]] : parents,
 					author: isCurrentUser ? 'You' : commit.author,
 					email: commit.authorEmail,
 					date: Number(ordering === 'author-date' ? commit.authorDate : commit.committerDate) * 1000,
@@ -5680,6 +5684,7 @@ export class LocalGitProvider implements GitProvider, Disposable {
 
 		try {
 			await this.git.worktree__add(repoPath, path, options);
+			this.container.events.fire('git:cache:reset', { repoPath: repoPath, caches: ['worktrees'] });
 			if (options?.createBranch) {
 				this.container.events.fire('git:cache:reset', { repoPath: repoPath, caches: ['branches'] });
 			}
@@ -5767,6 +5772,7 @@ export class LocalGitProvider implements GitProvider, Disposable {
 
 		try {
 			await this.git.worktree__remove(repoPath, normalizePath(path), options);
+			this.container.events.fire('git:cache:reset', { repoPath: repoPath, caches: ['worktrees'] });
 		} catch (ex) {
 			Logger.error(ex, scope);
 

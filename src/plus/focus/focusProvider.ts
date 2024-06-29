@@ -64,6 +64,42 @@ export const focusGroups = [
 ] as const;
 export type FocusGroup = (typeof focusGroups)[number];
 
+export const focusPriorityGroups = [
+	'mergeable',
+	'blocked',
+	'follow-up',
+	'needs-review',
+] satisfies readonly FocusPriorityGroup[] as readonly FocusGroup[];
+export type FocusPriorityGroup = Extract<FocusGroup, 'mergeable' | 'blocked' | 'follow-up' | 'needs-review'>;
+
+export const focusGroupIconMap = new Map<FocusGroup, `$(${string})`>([
+	['current-branch', '$(git-branch)'],
+	['pinned', '$(pinned)'],
+	['mergeable', '$(rocket)'],
+	['blocked', '$(error)'], //bracket-error
+	['follow-up', '$(report)'],
+	// ['needs-attention', '$(bell-dot)'], //comment-unresolved
+	['needs-review', '$(comment-unresolved)'], // feedback
+	['waiting-for-review', '$(gitlens-clock)'],
+	['draft', '$(git-pull-request-draft)'],
+	['other', '$(ellipsis)'],
+	['snoozed', '$(bell-slash)'],
+]);
+
+export const focusGroupLabelMap = new Map<FocusGroup, string>([
+	['current-branch', 'Current Branch'],
+	['pinned', 'Pinned'],
+	['mergeable', 'Ready to Merge'],
+	['blocked', 'Blocked'],
+	['follow-up', 'Requires Follow-up'],
+	// ['needs-attention', 'Needs Your Attention'],
+	['needs-review', 'Needs Your Review'],
+	['waiting-for-review', 'Waiting for Review'],
+	['draft', 'Draft'],
+	['other', 'Other'],
+	['snoozed', 'Snoozed'],
+]);
+
 export const focusCategoryToGroupMap = new Map<FocusActionCategory, FocusGroup>([
 	// ['pinned', 'pinned'],
 	['mergeable', 'mergeable'],
@@ -99,6 +135,7 @@ export type FocusAction =
 	| 'soft-open'
 	| 'switch'
 	| 'switch-and-code-suggest'
+	| 'open-worktree'
 	| 'code-suggest'
 	| 'show-overview'
 	| 'open-changes'
@@ -128,7 +165,7 @@ export function getSuggestedActions(category: FocusActionCategory, isCurrentBran
 	if (isCurrentBranch) {
 		actions.push('show-overview', 'open-changes', 'code-suggest', 'open-in-graph');
 	} else {
-		actions.push('switch', 'switch-and-code-suggest', 'open-in-graph');
+		actions.push('switch', 'open-worktree', 'switch-and-code-suggest', 'open-in-graph');
 	}
 	return actions;
 }
@@ -420,11 +457,14 @@ export class FocusProvider implements Disposable {
 	}
 
 	@log<FocusProvider['switchTo']>({ args: { 0: i => `${i.id} (${i.provider.name} ${i.type})` } })
-	async switchTo(item: FocusItem, startCodeSuggestion: boolean = false): Promise<void> {
+	async switchTo(
+		item: FocusItem,
+		options?: { skipWorktreeConfirmations?: boolean; startCodeSuggestion?: boolean },
+	): Promise<void> {
 		if (item.openRepository?.localBranch?.current) {
 			void showInspectView({
 				type: 'wip',
-				inReview: startCodeSuggestion,
+				inReview: options?.startCodeSuggestion,
 				repository: item.openRepository.repo,
 				source: 'launchpad',
 			} satisfies ShowWipArgs);
@@ -433,9 +473,11 @@ export class FocusProvider implements Disposable {
 
 		const deepLinkUrl = this.getItemBranchDeepLink(
 			item,
-			startCodeSuggestion
+			options?.startCodeSuggestion
 				? DeepLinkActionType.SwitchToAndSuggestPullRequest
-				: DeepLinkActionType.SwitchToPullRequest,
+				: options?.skipWorktreeConfirmations
+				  ? DeepLinkActionType.SwitchToPullRequestWorktree
+				  : DeepLinkActionType.SwitchToPullRequest,
 		);
 		if (deepLinkUrl == null) return;
 
@@ -470,6 +512,10 @@ export class FocusProvider implements Disposable {
 		const deepLinkUrl = this.getItemBranchDeepLink(item);
 		if (deepLinkUrl == null) return;
 		await this.container.deepLinks.processDeepLinkUri(deepLinkUrl, false);
+	}
+
+	generateWebUrl(): string {
+		return this.container.generateWebGkDevUrl('/launchpad');
 	}
 
 	private getItemBranchDeepLink(item: FocusItem, action?: DeepLinkActionType): Uri | undefined {
@@ -726,9 +772,11 @@ export class FocusProvider implements Disposable {
 			};
 			return result;
 		} finally {
+			this.updateGroupedIds(result?.items ?? []);
 			if (result != null) {
-				this.updateGroupedIds(result.items ?? []);
 				this._onDidRefresh.fire(result);
+			} else {
+				debugger;
 			}
 		}
 	}
@@ -792,6 +840,7 @@ export class FocusProvider implements Disposable {
 		const cfg = configuration.get('launchpad');
 		this.container.telemetry.sendEvent('launchpad/configurationChanged', {
 			'config.launchpad.staleThreshold': cfg.staleThreshold,
+			'config.launchpad.ignoredOrganizations': cfg.ignoredOrganizations?.length ?? 0,
 			'config.launchpad.ignoredRepositories': cfg.ignoredRepositories?.length ?? 0,
 			'config.launchpad.indicator.enabled': cfg.indicator.enabled,
 			'config.launchpad.indicator.openInEditor': cfg.indicator.openInEditor,
@@ -804,6 +853,7 @@ export class FocusProvider implements Disposable {
 		});
 
 		if (
+			configuration.changed(e, 'launchpad.ignoredOrganizations') ||
 			configuration.changed(e, 'launchpad.ignoredRepositories') ||
 			configuration.changed(e, 'launchpad.staleThreshold')
 		) {
